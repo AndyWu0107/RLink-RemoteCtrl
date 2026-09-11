@@ -22,6 +22,7 @@ if not defined RLINK_WEBRTC_SRC set "RLINK_WEBRTC_SRC=D:\webrtc_src\src"
 if not defined RLINK_WEBRTC_OUT set "RLINK_WEBRTC_OUT=D:\webrtc_src\src\out\ReleaseMD"
 if not defined RLINK_BUILD_DIR  set "RLINK_BUILD_DIR=%~dp0build-cmake\v143"
 if not defined RLINK_WIN_SDK    set "RLINK_WIN_SDK=10.0.26100.0"
+if not defined RLINK_OUTPUT_DIR set "RLINK_OUTPUT_DIR=%~dp0x64"
 
 rem --- locate cmake ----------------------------------------------------------
 where cmake >nul 2>nul
@@ -51,6 +52,7 @@ echo [configure] Qt          = %RLINK_QT_DIR%
 echo [configure] WebRTC src  = %RLINK_WEBRTC_SRC%
 echo [configure] WebRTC out  = %RLINK_WEBRTC_OUT%
 echo [configure] SDK version = %RLINK_WIN_SDK%
+echo [configure] output dir  = %RLINK_OUTPUT_DIR%
 echo.
 
 cmake -S "%~dp0." -B "%RLINK_BUILD_DIR%" ^
@@ -58,7 +60,8 @@ cmake -S "%~dp0." -B "%RLINK_BUILD_DIR%" ^
       -DCMAKE_SYSTEM_VERSION=%RLINK_WIN_SDK% ^
       -DRLINK_QT_DIR="%RLINK_QT_DIR%" ^
       -DRLINK_WEBRTC_SRC="%RLINK_WEBRTC_SRC%" ^
-      -DRLINK_WEBRTC_OUT="%RLINK_WEBRTC_OUT%" %*
+      -DRLINK_WEBRTC_OUT="%RLINK_WEBRTC_OUT%" ^
+      -DRLINK_OUTPUT_DIR="%RLINK_OUTPUT_DIR%" %*
 
 if errorlevel 1 (
   echo.

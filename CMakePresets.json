@@ -11,6 +11,7 @@
       "binaryDir": "${sourceDir}/build-cmake/v143",
       "cacheVariables": {
         "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
+        "RLINK_OUTPUT_DIR": "${sourceDir}/x64",
         "RLINK_QT_DIR": "D:/Qt6/6.11.2/msvc2022_64",
         "RLINK_WEBRTC_SRC": "D:/webrtc_src/src",
         "RLINK_WEBRTC_OUT": "D:/webrtc_src/src/out/ReleaseMD"

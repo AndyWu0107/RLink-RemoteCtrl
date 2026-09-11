@@ -17,8 +17,8 @@ set(RLINK_WEBRTC_SRC "D:/webrtc_src/src" CACHE PATH
     "Google WebRTC source checkout (built separately with GN)")
 set(RLINK_WEBRTC_OUT "D:/webrtc_src/src/out/ReleaseMD" CACHE PATH
     "WebRTC GN out directory (Release, dynamic CRT)")
-set(RLINK_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/x64/cmake" CACHE PATH
-    "Root directory for CMake build outputs")
+set(RLINK_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/x64" CACHE PATH
+    "Root directory for CMake build outputs (matches the MSBuild x64 layout)")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlinkLocal.cmake" OPTIONAL)
 
 # ---------------------------------------------------------------------------
@@ -48,8 +48,9 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
 qt_standard_project_setup()
 
 # ---------------------------------------------------------------------------
-# Output layout: x64/cmake/<Config>/ (kept separate from the x64/Release MSBuild
-# output so both build systems can coexist for comparison).
+# Output layout: x64/<Config>/ - the same directory the MSBuild solution uses
+# (build/*.props set OutDir to ..\x64\$(Configuration)\), so the two build
+# systems place the binaries, Qt runtime and FFmpeg DLLs side by side.
 # ---------------------------------------------------------------------------
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${RLINK_OUTPUT_DIR}/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${RLINK_OUTPUT_DIR}/$<CONFIG>")
