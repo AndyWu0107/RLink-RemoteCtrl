@@ -1,7 +1,6 @@
 # Common interface target and helper for shared compile settings.
 #
-# Mirrors build/RemoteProcessCommon.props (release-only, /MD, C++20, UTF-8,
-# warnings-as-info level 3, SDL checks).
+# Release-only, /MD, C++20, UTF-8 source, warning level 3, SDL checks.
 
 add_library(rlink_project INTERFACE)
 

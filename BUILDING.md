@@ -1,19 +1,14 @@
 # Building RLink on Windows
 
 This guide is intended for developers building RLink for the first time on a
-clean Windows machine. The repository contains the production source code,
-Visual Studio solution, UI assets, FFmpeg headers, and runtime DLLs. It does
-not include the Qt SDK or prebuilt libwebrtc artifacts.
+clean Windows machine. The repository contains the production source code, the
+CMake build system, UI assets, FFmpeg headers, and runtime DLLs. It does not
+include the Qt SDK or prebuilt libwebrtc artifacts.
 
 ## 1. Build targets
 
-The production solution is:
-
-```text
-build\RLink.sln
-```
-
-A `Release | x64` build produces the main executables under:
+The build system is CMake with a Visual Studio 2022 (v143) generator. A
+`Release` build produces the main executables under:
 
 ```text
 x64\Release\RLinkAPP.exe
@@ -25,6 +20,19 @@ x64\Release\RemoteCSignalServer.exe
 `RLinkUpdater.exe` is the standalone updater used by installed clients.
 `RemoteCSignalServer.exe` is the WSS signaling server.
 
+CMake targets map to the sources as follows:
+
+| Target | Kind | Notes |
+| --- | --- | --- |
+| `rlink_core` | static lib | protocols + core session policy |
+| `rlink_auth` | static lib | OIDC/OAuth (Qt NetworkAuthorization) |
+| `rlink_signaling` | static lib | Qt WebSocket signaling client |
+| `rlink_webrtc_transport` | static lib | libwebrtc session + Windows capture/encode |
+| `rlink_session_engine` | static lib | in-process session engine |
+| `RLinkAPP` | exe | Qt Widgets client |
+| `RemoteCSignalServer` | exe | Qt HTTP/WS signaling server |
+| `RLinkUpdater` | exe | standalone updater (no Qt) |
+
 ## 2. Prerequisites
 
 Use the versions from the currently verified environment when possible:
@@ -32,10 +40,10 @@ Use the versions from the currently verified environment when possible:
 | Component | Version or requirement |
 | --- | --- |
 | Windows | Windows 10/11 x64 |
-| Visual Studio | Visual Studio 2022 17.14 |
-| MSVC | v143 with the Desktop development with C++ workload |
+| CMake | 3.24 or newer |
+| Visual Studio | Visual Studio 2022 Build Tools (or IDE) with the v143 toolset, MSVC 14.44.x |
 | Windows SDK | 10.0.26100.0 or a compatible Windows 10/11 SDK |
-| Qt | Qt 6.11.1, MSVC 2022 64-bit |
+| Qt | Qt 6.11.x, MSVC 2022 64-bit (`msvc2022_64`) |
 | WebRTC | Pinned commit `1e2bd46a33bc0a95ff4e032e380f9fcfa2505808` |
 | depot_tools | Verified revision `3799a497b1e483ab3625b91f9540155e8d311985` |
 
@@ -53,9 +61,24 @@ Qt SQL
 Qt SVG
 ```
 
-The project invokes Qt's `rcc.exe` directly to generate the resource source
-file. The Qt Visual Studio extension is therefore optional, but the Qt
-installation directory must be complete.
+CMake locates Qt through `find_package(Qt6 6.11 REQUIRED ...)`. MOC, UIC, and
+RCC are handled by CMake (`AUTOMOC`/`AUTOUIC`/`AUTORCC`), so the Qt Visual
+Studio extension is not required.
+
+### Toolchain consistency with WebRTC
+
+WebRTC is compiled separately with GN, and its static libraries are linked into
+`RLinkAPP.exe`. The MSVC STL used by WebRTC must match the one used by the CMake
+build. If WebRTC is built with a different toolset (for example MSVC 14.51 while
+the app uses 14.44), linking fails with unresolved `__std_*` symbols.
+
+Keep both sides on the same toolset. When generating WebRTC, point depot_tools
+at the VS2022 Build Tools installation so that WebRTC picks `14.44.35207`:
+
+```powershell
+$env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+```
 
 ## 3. Clone the source code
 
@@ -101,18 +124,31 @@ proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
 
-Do not omit `use_dynamic_crt_for_webrtc = true`. The Qt/MSVC projects use
-`/MD`. A WebRTC library built with `/MT` produces an
-`LNK2038 RuntimeLibrary` mismatch at link time.
+`use_dynamic_crt_for_webrtc = true` selects the dynamic CRT (`/MD`) to match
+the CMake build; a `/MT` WebRTC library produces an `LNK2038 RuntimeLibrary`
+mismatch at link time. On current WebRTC revisions this argument may not exist
+in `declare_args()`; in that case the default is already `/MD`, and the value is
+harmless.
 
-Generate and build WebRTC:
+Generate and build WebRTC (using the v143 toolchain override from section 2):
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
 
 gn gen out\ReleaseMD
 autoninja -C out\ReleaseMD `
+  webrtc `
+  builtin_video_decoder_factory `
+  builtin_video_encoder_factory `
+  api/video:adapted_video_track_source
+```
+
+If `autoninja` (siso) stalls, run plain `ninja` instead:
+
+```powershell
+third_party\ninja\ninja.exe -C out\ReleaseMD `
   webrtc `
   builtin_video_decoder_factory `
   builtin_video_encoder_factory `
@@ -138,66 +174,69 @@ different revisions.
 
 ## 5. Configure local paths
 
-RLink does not commit machine-specific paths or credentials. Copy the local
-path template:
+RLink does not commit machine-specific paths. The CMake build reads three
+environment variables:
+
+| Variable | Meaning |
+| --- | --- |
+| `RLINK_QT_DIR` | Qt 6.11+ `msvc2022_64` kit (must contain `lib\cmake\Qt6`) |
+| `RLINK_WEBRTC_SRC` | WebRTC source checkout |
+| `RLINK_WEBRTC_OUT` | WebRTC GN output directory (`out\ReleaseMD`) |
+
+Set them for the current shell, or persistently for the user:
 
 ```powershell
-Copy-Item .\build\LocalBuild.props.example `
-  .\build\LocalBuild.props
+$env:RLINK_QT_DIR     = 'E:\Qt6\6.11.1\msvc2022_64'
+$env:RLINK_WEBRTC_SRC = 'E:\webrtc_src\src'
+$env:RLINK_WEBRTC_OUT = 'E:\webrtc_src\src\out\ReleaseMD'
 ```
 
-Edit `build\LocalBuild.props`, for example:
+On Windows you can instead keep them in a Git-ignored file. Copy the template:
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="Current"
-         xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <WebRtcSourceDir>E:\webrtc_src\src</WebRtcSourceDir>
-    <WebRtcOutputDir>$(WebRtcSourceDir)\out\ReleaseMD</WebRtcOutputDir>
-    <QtInstallDir>E:\Qt6\6.11.1\msvc2022_64</QtInstallDir>
-  </PropertyGroup>
-</Project>
+```bat
+copy cmake\local.bat.example cmake\local.bat
 ```
 
-Adjust all three directories for your machine. `LocalBuild.props` is ignored
-by Git. Do not store Logto secrets, server certificates, or other credentials
-in it.
+and edit `cmake\local.bat`:
 
-You can check the critical inputs before building:
+```bat
+set "RLINK_QT_DIR=E:\Qt6\6.11.1\msvc2022_64"
+set "RLINK_WEBRTC_SRC=E:\webrtc_src\src"
+set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
+```
+
+`cmake_configure.bat` loads `cmake\local.bat` automatically when present.
+`cmake\local.bat` is ignored by Git. Do not store Logto secrets, server
+certificates, or other credentials in it.
+
+## 6. Configure and build
+
+From the repository root, either run the helper script:
 
 ```powershell
-$required = @(
-  'E:\Qt6\6.11.1\msvc2022_64\bin\rcc.exe',
-  'E:\webrtc_src\src\out\ReleaseMD\obj\webrtc.lib',
-  '.\third_party\ffmpeg_d3d11va\prefix\bin\avcodec-62.dll',
-  '.\third_party\ffmpeg_d3d11va\prefix\bin\avutil-60.dll'
-)
-$required | ForEach-Object {
-  if (-not (Test-Path -LiteralPath $_)) {
-    Write-Error "Missing build dependency: $_"
-  }
-}
+.\cmake_configure.bat
+cmake --build --preset release-v143 -- /m
 ```
 
-## 6. Build the production solution
-
-Open **Developer PowerShell for VS 2022** or
-**x64 Native Tools Command Prompt for VS 2022**, then run this command from
-the repository root:
+or use the CMake preset directly:
 
 ```powershell
-MSBuild.exe .\build\RLink.sln /t:Build `
-  /p:Configuration=Release /p:Platform=x64 /m
+cmake --preset windows-v143
+cmake --build --preset release-v143 -- /m
 ```
 
-If `MSBuild.exe` is not available in `PATH`, launch one of the Visual Studio
-developer shells above or use the actual `MSBuild.exe` path on your machine.
-You can also open `build\RLink.sln` in Visual Studio, select `Release | x64`,
-and build the solution.
+`cmake --preset windows-v143` configures a `Visual Studio 17 2022` x64 project
+with toolset `v143` into `build-cmake\v143`. The build copies Qt, FFmpeg, and
+platform plugins into `x64\Release`.
 
-The build copies Qt, FFmpeg, and platform plugins into `x64\Release`. Verify
-the main outputs after a successful build:
+If you change an environment variable and the CMake cache is stale, reconfigure
+with `--fresh`:
+
+```powershell
+cmake --preset windows-v143 --fresh
+```
+
+Verify the main outputs after a successful build:
 
 ```powershell
 Test-Path .\x64\Release\RLinkAPP.exe
@@ -211,24 +250,32 @@ All five commands should return `True`.
 
 ## 7. Troubleshooting
 
-### Qt headers or Qt6*.lib cannot be found
+### CMake reports "Missing dependency locations"
 
-Make sure `QtInstallDir` points to the `msvc2022_64` root, not the Qt installer
-root. The directory must contain `include`, `lib`, `bin`, and `plugins`.
+`RLINK_QT_DIR`, `RLINK_WEBRTC_SRC`, or `RLINK_WEBRTC_OUT` is empty. Set the
+environment variables (section 5) or create `cmake\local.bat`, then reconfigure.
 
-### LNK1104: cannot open webrtc.lib
+### Qt6Config.cmake not found
 
-Check `WebRtcOutputDir` and confirm that `obj\webrtc.lib` exists. Do not point
-the property to `out\ReleaseMD\obj`; the project appends `obj` itself.
+`RLINK_QT_DIR` must point to the `msvc2022_64` kit root, not the Qt installer
+root. The directory must contain `lib\cmake\Qt6`, `include`, `lib`, `bin`, and
+`plugins`. Qt 6.8 or older is not sufficient: the code uses NetworkAuth APIs
+introduced in Qt 6.11.
+
+### WebRTC static libraries were not found
+
+`RLINK_WEBRTC_OUT` must be the GN output directory (for example
+`out\ReleaseMD`). CMake looks for `obj\webrtc.lib` inside it.
 
 ### LNK2038: RuntimeLibrary mismatch
 
-The project uses `/MD`. Regenerate WebRTC and make sure the GN arguments
-contain:
+The build uses `/MD`. Regenerate WebRTC with dynamic CRT (see section 4).
 
-```gn
-use_dynamic_crt_for_webrtc = true
-```
+### LNK2001: unresolved `__std_*` symbols when linking RLinkAPP
+
+WebRTC and the application were built with different MSVC STL versions. Regenerate
+WebRTC with the same toolset as the app (`GYP_MSVS_OVERRIDE_PATH` pointing at the
+VS2022 Build Tools, i.e. MSVC 14.44.35207), then rebuild.
 
 ### builtin_video_* or adapted_video_track_source is missing
 
@@ -238,9 +285,9 @@ building only the `webrtc` target.
 
 ### The built application reports missing DLLs
 
-Build the complete solution and do not copy the EXE alone. The application
-also needs the Qt DLLs, Qt plugins, and runtime DLLs from
-`third_party\ffmpeg_d3d11va\prefix\bin`.
+Build the full CMake build (all targets) rather than a single target; the
+post-build steps deploy the Qt runtime and plugins and copy the runtime DLLs
+from `third_party\ffmpeg_d3d11va\prefix\bin`.
 
 ## 8. Building versus connecting to deployed services
 

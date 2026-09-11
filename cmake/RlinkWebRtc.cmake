@@ -25,8 +25,8 @@ target_compile_definitions(rlink_webrtc INTERFACE
   WEBRTC_WIN RTC_ENABLE_WIN_WGC NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # Extra optimization switches used by the WebRTC-consuming projects.
-# /wd4068 4146 4996 mirrors DisableSpecificWarnings in RemoteProcessCommon.props
-# (WebRTC headers trigger these; /sdl would otherwise promote them to errors).
+# /wd4068 4146 4996 suppress warnings triggered by WebRTC headers (/sdl would
+# otherwise promote them to errors).
 if(MSVC)
   target_compile_options(rlink_webrtc INTERFACE /Zo /Gy /Oi /wd4068 /wd4146 /wd4996)
 endif()

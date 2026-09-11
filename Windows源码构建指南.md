@@ -1,18 +1,13 @@
 # RLink Windows 源码构建指南
 
 本文面向第一次在全新 Windows 电脑上编译 RLink 的开发者。仓库包含
-RLink 的正式源码、Visual Studio 解决方案、界面资源以及运行时使用的
-FFmpeg DLL，但不包含 Qt SDK 和 libwebrtc 的预编译产物。
+RLink 的正式源码、CMake 构建系统、界面资源以及运行时使用的 FFmpeg DLL，
+但不包含 Qt SDK 和 libwebrtc 的预编译产物。
 
 ## 1. 构建目标
 
-正式解决方案为：
-
-```text
-build\RLink.sln
-```
-
-使用 `Release | x64` 构建后，主要产物位于：
+构建系统为 CMake + Visual Studio 2022（v143）生成器。`Release` 构建后，
+主要产物位于：
 
 ```text
 x64\Release\RLinkAPP.exe
@@ -24,6 +19,19 @@ x64\Release\RemoteCSignalServer.exe
 `RLinkUpdater.exe` 是客户端确认更新后使用的独立更新程序，
 `RemoteCSignalServer.exe` 是 WSS 信令服务。
 
+CMake 目标与源码的对应关系：
+
+| 目标 | 类型 | 说明 |
+| --- | --- | --- |
+| `rlink_core` | 静态库 | 协议 + 会话核心策略 |
+| `rlink_auth` | 静态库 | OIDC/OAuth（Qt NetworkAuthorization） |
+| `rlink_signaling` | 静态库 | Qt WebSocket 信令客户端 |
+| `rlink_webrtc_transport` | 静态库 | libwebrtc 会话 + Windows 采集/编码 |
+| `rlink_session_engine` | 静态库 | 进程内会话引擎 |
+| `RLinkAPP` | 可执行 | Qt Widgets 客户端 |
+| `RemoteCSignalServer` | 可执行 | Qt HTTP/WS 信令服务 |
+| `RLinkUpdater` | 可执行 | 独立更新器（不依赖 Qt） |
+
 ## 2. 所需环境
 
 建议使用与当前已验证环境一致的版本：
@@ -31,10 +39,10 @@ x64\Release\RemoteCSignalServer.exe
 | 组件 | 版本或要求 |
 | --- | --- |
 | Windows | Windows 10/11 x64 |
-| Visual Studio | Visual Studio 2022 17.14 |
-| MSVC | v143，安装“使用 C++ 的桌面开发” |
+| CMake | 3.24 或更高 |
+| Visual Studio | Visual Studio 2022 生成工具（或 IDE），含 v143 工具集、MSVC 14.44.x |
 | Windows SDK | 10.0.26100.0，或兼容的 Windows 10/11 SDK |
-| Qt | Qt 6.11.1，MSVC 2022 64-bit |
+| Qt | Qt 6.11.x，MSVC 2022 64-bit（`msvc2022_64`） |
 | WebRTC | 固定 commit `1e2bd46a33bc0a95ff4e032e380f9fcfa2505808` |
 | depot_tools | 已验证 revision `3799a497b1e483ab3625b91f9540155e8d311985` |
 
@@ -52,8 +60,23 @@ Qt SQL
 Qt SVG
 ```
 
-项目直接调用 Qt 自带的 `rcc.exe` 生成资源源码，不强制要求安装
-Visual Studio 的 Qt 扩展；但 Qt 安装目录必须完整。
+CMake 通过 `find_package(Qt6 6.11 REQUIRED ...)` 查找 Qt，MOC/UIC/RCC 由
+CMake 的 `AUTOMOC`/`AUTOUIC`/`AUTORCC` 处理，因此不依赖 Visual Studio 的
+Qt 扩展。
+
+### 与 WebRTC 的工具链一致性
+
+WebRTC 由 GN 单独编译，其静态库会被链接进 `RLinkAPP.exe`。WebRTC 使用的
+MSVC STL 必须与 CMake 构建一致：若 WebRTC 用 14.51、主程序用 14.44 之类的
+不同工具集，链接时会出现无法解析的 `__std_*` 符号。
+
+让两侧保持同一工具集。生成 WebRTC 时把 depot_tools 指向 VS2022 生成工具，
+使其选用 `14.44.35207`：
+
+```powershell
+$env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+```
 
 ## 3. 克隆源码
 
@@ -97,18 +120,30 @@ proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
 
-其中 `use_dynamic_crt_for_webrtc = true` 不能省略。Qt/MSVC 工程使用
-`/MD`，如果 WebRTC 使用 `/MT`，链接时会出现 `LNK2038 RuntimeLibrary`
-不匹配。
+`use_dynamic_crt_for_webrtc = true` 用于选择动态 CRT（`/MD`）以匹配 CMake
+构建；若 WebRTC 使用 `/MT`，链接时会出现 `LNK2038 RuntimeLibrary` 不匹配。
+在较新的 WebRTC 版本中该参数可能已不在 `declare_args()` 中，此时默认即为
+`/MD`，该赋值无害。
 
-生成并编译 WebRTC：
+生成并编译 WebRTC（同时应用第 2 节的 v143 工具链覆盖）：
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
 
 gn gen out\ReleaseMD
 autoninja -C out\ReleaseMD `
+  webrtc `
+  builtin_video_decoder_factory `
+  builtin_video_encoder_factory `
+  api/video:adapted_video_track_source
+```
+
+如果 `autoninja`（siso）卡住，可改用普通 ninja：
+
+```powershell
+third_party\ninja\ninja.exe -C out\ReleaseMD `
   webrtc `
   builtin_video_decoder_factory `
   builtin_video_encoder_factory `
@@ -133,61 +168,66 @@ out\ReleaseMD\gen
 
 ## 5. 配置本机路径
 
-RLink 不会把本机路径或凭证提交到 Git。复制路径模板：
+RLink 不会把本机路径提交到 Git。CMake 构建读取三个环境变量：
+
+| 变量 | 含义 |
+| --- | --- |
+| `RLINK_QT_DIR` | Qt 6.11+ `msvc2022_64` 套件（需含 `lib\cmake\Qt6`） |
+| `RLINK_WEBRTC_SRC` | WebRTC 源码目录 |
+| `RLINK_WEBRTC_OUT` | WebRTC 的 GN 输出目录（`out\ReleaseMD`） |
+
+在当前终端临时设置，或设为用户级持久变量：
 
 ```powershell
-Copy-Item .\build\LocalBuild.props.example `
-  .\build\LocalBuild.props
+$env:RLINK_QT_DIR     = 'E:\Qt6\6.11.1\msvc2022_64'
+$env:RLINK_WEBRTC_SRC = 'E:\webrtc_src\src'
+$env:RLINK_WEBRTC_OUT = 'E:\webrtc_src\src\out\ReleaseMD'
 ```
 
-编辑 `build\LocalBuild.props`，例如：
+在 Windows 上也可以放进一个被 Git 忽略的本地文件。复制模板：
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="Current"
-         xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <PropertyGroup>
-    <WebRtcSourceDir>E:\webrtc_src\src</WebRtcSourceDir>
-    <WebRtcOutputDir>$(WebRtcSourceDir)\out\ReleaseMD</WebRtcOutputDir>
-    <QtInstallDir>E:\Qt6\6.11.1\msvc2022_64</QtInstallDir>
-  </PropertyGroup>
-</Project>
+```bat
+copy cmake\local.bat.example cmake\local.bat
 ```
 
-按实际安装位置修改三个目录。`LocalBuild.props` 已被 `.gitignore` 排除，
-不要在其中写入 Logto 密钥、服务器证书或其他凭证。
+然后编辑 `cmake\local.bat`：
 
-构建前可以先检查关键文件：
+```bat
+set "RLINK_QT_DIR=E:\Qt6\6.11.1\msvc2022_64"
+set "RLINK_WEBRTC_SRC=E:\webrtc_src\src"
+set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
+```
+
+`cmake_configure.bat` 会在该文件存在时自动加载它。`cmake\local.bat` 已被
+`.gitignore` 排除，不要在其中写入 Logto 密钥、服务器证书或其他凭证。
+
+## 6. 配置与编译
+
+在仓库根目录，可以运行辅助脚本：
 
 ```powershell
-$required = @(
-  'E:\Qt6\6.11.1\msvc2022_64\bin\rcc.exe',
-  'E:\webrtc_src\src\out\ReleaseMD\obj\webrtc.lib',
-  '.\third_party\ffmpeg_d3d11va\prefix\bin\avcodec-62.dll',
-  '.\third_party\ffmpeg_d3d11va\prefix\bin\avutil-60.dll'
-)
-$required | ForEach-Object {
-  if (-not (Test-Path -LiteralPath $_)) {
-    Write-Error "缺少构建依赖：$_"
-  }
-}
+.\cmake_configure.bat
+cmake --build --preset release-v143 -- /m
 ```
 
-## 6. 编译正式解决方案
-
-打开 **Developer PowerShell for VS 2022** 或
-**x64 Native Tools Command Prompt for VS 2022**，然后在仓库根目录执行：
+也可以直接使用 CMake 预设：
 
 ```powershell
-MSBuild.exe .\build\RLink.sln /t:Build `
-  /p:Configuration=Release /p:Platform=x64 /m
+cmake --preset windows-v143
+cmake --build --preset release-v143 -- /m
 ```
 
-如果当前终端找不到 `MSBuild.exe`，请使用上述 Visual Studio 开发者终端，
-或改为本机实际的 `MSBuild.exe` 路径。也可以使用 Visual Studio 打开
-`build\RLink.sln`，选择 `Release | x64` 后生成解决方案。
+`cmake --preset windows-v143` 会在 `build-cmake\v143` 下生成
+`Visual Studio 17 2022`、x64、工具集 `v143` 的工程。构建过程会把 Qt、
+FFmpeg 和平台插件复制到 `x64\Release`。
 
-构建过程会把 Qt、FFmpeg 和平台插件复制到 `x64\Release`。成功后检查：
+如果修改了环境变量而 CMake 缓存仍是旧值，用 `--fresh` 重新配置：
+
+```powershell
+cmake --preset windows-v143 --fresh
+```
+
+成功后检查：
 
 ```powershell
 Test-Path .\x64\Release\RLinkAPP.exe
@@ -201,23 +241,31 @@ Test-Path .\x64\Release\avcodec-62.dll
 
 ## 7. 常见问题
 
-### 找不到 Qt 头文件或 Qt6*.lib
+### CMake 报 “Missing dependency locations”
 
-检查 `QtInstallDir` 是否指向 `msvc2022_64` 根目录，而不是 Qt 安装器根目录。
-该目录下必须存在 `include`、`lib`、`bin` 和 `plugins`。
+`RLINK_QT_DIR`、`RLINK_WEBRTC_SRC` 或 `RLINK_WEBRTC_OUT` 为空。按第 5 节设置
+环境变量或创建 `cmake\local.bat` 后重新配置。
 
-### LNK1104：无法打开 webrtc.lib
+### 找不到 Qt6Config.cmake
 
-检查 `WebRtcOutputDir`，并确认 `obj\webrtc.lib` 已生成。不要把路径指向
-`out\ReleaseMD\obj\obj`，项目会自动追加 `obj`。
+`RLINK_QT_DIR` 必须指向 `msvc2022_64` 根目录，而不是 Qt 安装器根目录。该
+目录下必须存在 `lib\cmake\Qt6`、`include`、`lib`、`bin` 和 `plugins`。
+Qt 6.8 及更早版本不满足要求：代码使用了 Qt 6.11 引入的 NetworkAuth API。
+
+### WebRTC static libraries were not found
+
+`RLINK_WEBRTC_OUT` 必须指向 GN 输出目录（例如 `out\ReleaseMD`），CMake 会在
+其下查找 `obj\webrtc.lib`。
 
 ### LNK2038：RuntimeLibrary 不匹配
 
-当前项目固定使用 `/MD`。重新生成 WebRTC，并确保 GN 参数包含：
+构建固定使用 `/MD`。按第 4 节用动态 CRT 重新生成 WebRTC。
 
-```gn
-use_dynamic_crt_for_webrtc = true
-```
+### 链接 RLinkAPP 时出现无法解析的 `__std_*` 符号（LNK2001）
+
+WebRTC 与主程序使用了不同的 MSVC STL 版本。用与主程序相同的工具集重新生成
+WebRTC（`GYP_MSVS_OVERRIDE_PATH` 指向 VS2022 生成工具，即 MSVC
+14.44.35207），然后重新构建。
 
 ### 找不到 builtin_video_* 或 adapted_video_track_source
 
@@ -226,8 +274,9 @@ use_dynamic_crt_for_webrtc = true
 
 ### 构建后程序启动时提示缺少 DLL
 
-先确认整个解决方案构建成功，不要只复制 EXE。程序旁边还需要 Qt DLL、
-Qt 插件以及 `third_party\ffmpeg_d3d11va\prefix\bin` 中的运行时 DLL。
+请构建完整的 CMake 工程（所有目标），不要只构建单个目标；构建后的部署步骤
+会复制 Qt 运行时与插件，并拷贝
+`third_party\ffmpeg_d3d11va\prefix\bin` 中的运行时 DLL。
 
 ## 8. 编译成功与可连接运行的区别
 

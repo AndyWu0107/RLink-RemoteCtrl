@@ -1,4 +1,4 @@
-# Target definitions mirroring the MSBuild projects in build/*.vcxproj.
+# Target definitions for the RemoteC components and applications.
 #
 # Windows-only for now; platform-specific sources are grouped so a future
 # cross-platform port can add e.g. src/platform/posix alongside src/platform/win.
@@ -119,7 +119,7 @@ add_executable(RLinkAPP WIN32
   "${_src}/apps/controller/RemoteSessionWindow.cpp"
   "${_src}/apps/controller/RoomCameraWindow.cpp"
   "${_src}/platform/win/WindowsInputExecutor.cpp"
-  "${CMAKE_SOURCE_DIR}/build/RemoteCResources.qrc"
+  "${_src}/apps/controller/RemoteCResources.qrc"
   "${CMAKE_SOURCE_DIR}/assets/branding/RemoteCApp.rc"
   "${_src}/apps/remote/RemoteCApp.manifest")
 rlink_apply_common(RLinkAPP)

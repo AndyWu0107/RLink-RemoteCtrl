@@ -1,6 +1,6 @@
 # Runtime deployment helpers (Windows).
 #
-# - Qt runtime + plugins via windeployqt (replaces QtRuntime.props CopyQtRuntime).
+# - Qt runtime + plugins via windeployqt.
 # - FFmpeg runtime DLLs (replaces the ControllerApp PostBuildEvent copy).
 
 function(rlink_deploy_qt target)
@@ -37,7 +37,7 @@ function(rlink_copy_ffmpeg_runtime target)
   endforeach()
 endfunction()
 
-# License material bundled next to the app (mirrors the MSBuild license copies).
+# License material bundled next to the app.
 function(rlink_copy_licenses target)
   if(NOT WIN32)
     return()

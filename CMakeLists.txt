@@ -21,7 +21,7 @@ set(RLINK_WEBRTC_SRC "$ENV{RLINK_WEBRTC_SRC}" CACHE PATH
 set(RLINK_WEBRTC_OUT "$ENV{RLINK_WEBRTC_OUT}" CACHE PATH
     "WebRTC GN out directory (env RLINK_WEBRTC_OUT)")
 set(RLINK_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/x64" CACHE PATH
-    "Root directory for CMake build outputs (matches the MSBuild x64 layout)")
+    "Root directory for build outputs")
 
 if(NOT RLINK_QT_DIR OR NOT RLINK_WEBRTC_SRC OR NOT RLINK_WEBRTC_OUT)
   message(FATAL_ERROR
@@ -33,7 +33,7 @@ if(NOT RLINK_QT_DIR OR NOT RLINK_WEBRTC_SRC OR NOT RLINK_WEBRTC_OUT)
 endif()
 
 # ---------------------------------------------------------------------------
-# Language / runtime settings (match build/RemoteProcessCommon.props)
+# Language / runtime settings (C++20, /MD, UTF-8, SDL checks)
 # ---------------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -59,9 +59,8 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS
 qt_standard_project_setup()
 
 # ---------------------------------------------------------------------------
-# Output layout: x64/<Config>/ - the same directory the MSBuild solution uses
-# (build/*.props set OutDir to ..\x64\$(Configuration)\), so the two build
-# systems place the binaries, Qt runtime and FFmpeg DLLs side by side.
+# Output layout: x64/<Config>/ so binaries, Qt runtime and FFmpeg DLLs sit in
+# a predictable, Git-ignored location.
 # ---------------------------------------------------------------------------
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${RLINK_OUTPUT_DIR}/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${RLINK_OUTPUT_DIR}/$<CONFIG>")
