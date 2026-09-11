@@ -39,6 +39,10 @@
     <ClCompile Include="..\src\apps\controller\ui\morph\MorphIconButtonBinding.cpp" />
     <ClCompile Include="..\src\apps\controller\CameraWindow.cpp" />
     <ClCompile Include="..\src\apps\controller\ControllerMainWindow.cpp" />
+    <ClCompile Include="..\src\apps\controller\ControllerMainWindow.Ui.cpp" />
+    <ClCompile Include="..\src\apps\controller\ControllerMainWindow.Media.cpp" />
+    <ClCompile Include="..\src\apps\controller\ControllerMainWindow.Diagnostics.cpp" />
+    <ClCompile Include="..\src\apps\controller\ControllerMainWindow.Room.cpp" />
     <ClCompile Include="..\src\apps\controller\FileTransferWindow.cpp" />
     <ClCompile Include="..\src\apps\controller\FramelessWindow.cpp" />
     <ClCompile Include="..\src\apps\controller\RemoteCDialog.cpp" />
@@ -60,6 +64,7 @@
     <ClInclude Include="..\src\core\ISessionEngine.h" />
     <ClInclude Include="..\src\apps\controller\CameraWindow.h" />
     <ClInclude Include="..\src\apps\controller\ControllerMainWindow.h" />
+    <ClInclude Include="..\src\apps\controller\ControllerMainWindow.Internal.h" />
     <ClInclude Include="..\src\apps\controller\LoginWindow.h" />
     <ClInclude Include="..\src\apps\controller\ui\RemoteCTheme.h" />
     <ClInclude Include="..\src\apps\controller\ui\morph\MorphIconCore.h" />

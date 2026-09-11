@@ -11,7 +11,7 @@ target_compile_features(rlink_project INTERFACE cxx_std_20)
 
 if(MSVC)
   target_compile_options(rlink_project INTERFACE
-    /utf-8 /Zc:__cplusplus /permissive- /MP /W3 /sdl /Zi /bigobj)
+    /utf-8 /Zc:__cplusplus /permissive- /MP /W3 /sdl /Zi)
   target_compile_definitions(rlink_project INTERFACE
     _UNICODE UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
   target_link_options(rlink_project INTERFACE /DEBUG)
