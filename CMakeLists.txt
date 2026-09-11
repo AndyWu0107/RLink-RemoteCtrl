@@ -8,18 +8,29 @@ project(RLinkRemoteCtrl
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ---------------------------------------------------------------------------
-# Local machine paths. These are Git-ignored; copy cmake/RlinkLocal.cmake.example
-# to cmake/RlinkLocal.cmake and adjust, or pass -D<VAR>=... on the command line.
+# Per-machine dependency locations.
+#
+# These come from the environment so that no machine path is committed. On
+# Windows, cmake\local.bat (Git-ignored, see cmake\local.bat.example) can set
+# them; CI sets them directly. Command-line -D overrides still win.
 # ---------------------------------------------------------------------------
-set(RLINK_QT_DIR "D:/Qt6/6.11.2/msvc2022_64" CACHE PATH
-    "Qt 6.11+ msvc2022_64 kit directory")
-set(RLINK_WEBRTC_SRC "D:/webrtc_src/src" CACHE PATH
-    "Google WebRTC source checkout (built separately with GN)")
-set(RLINK_WEBRTC_OUT "D:/webrtc_src/src/out/ReleaseMD" CACHE PATH
-    "WebRTC GN out directory (Release, dynamic CRT)")
+set(RLINK_QT_DIR "$ENV{RLINK_QT_DIR}" CACHE PATH
+    "Qt 6.11+ msvc2022_64 kit directory (env RLINK_QT_DIR)")
+set(RLINK_WEBRTC_SRC "$ENV{RLINK_WEBRTC_SRC}" CACHE PATH
+    "WebRTC source checkout (env RLINK_WEBRTC_SRC)")
+set(RLINK_WEBRTC_OUT "$ENV{RLINK_WEBRTC_OUT}" CACHE PATH
+    "WebRTC GN out directory (env RLINK_WEBRTC_OUT)")
 set(RLINK_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/x64" CACHE PATH
     "Root directory for CMake build outputs (matches the MSBuild x64 layout)")
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RlinkLocal.cmake" OPTIONAL)
+
+if(NOT RLINK_QT_DIR OR NOT RLINK_WEBRTC_SRC OR NOT RLINK_WEBRTC_OUT)
+  message(FATAL_ERROR
+    "Missing dependency locations.\n"
+    "Set the environment variables RLINK_QT_DIR, RLINK_WEBRTC_SRC and "
+    "RLINK_WEBRTC_OUT (see cmake/local.bat.example), then re-run configure. "
+    "Alternatively pass -DRLINK_QT_DIR=... -DRLINK_WEBRTC_SRC=... "
+    "-DRLINK_WEBRTC_OUT=... .")
+endif()
 
 # ---------------------------------------------------------------------------
 # Language / runtime settings (match build/RemoteProcessCommon.props)

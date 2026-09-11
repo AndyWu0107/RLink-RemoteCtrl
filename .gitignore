@@ -9,7 +9,7 @@ LocalBuild.props
 # CMake local state and build trees
 /build-cmake/
 /CMakeUserPresets.json
-/cmake/RlinkLocal.cmake
+/cmake/local.bat
 CMakeCache.txt
 CMakeFiles/
 

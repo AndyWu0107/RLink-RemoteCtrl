@@ -12,9 +12,9 @@
       "cacheVariables": {
         "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
         "RLINK_OUTPUT_DIR": "${sourceDir}/x64",
-        "RLINK_QT_DIR": "D:/Qt6/6.11.2/msvc2022_64",
-        "RLINK_WEBRTC_SRC": "D:/webrtc_src/src",
-        "RLINK_WEBRTC_OUT": "D:/webrtc_src/src/out/ReleaseMD"
+        "RLINK_QT_DIR": "$env{RLINK_QT_DIR}",
+        "RLINK_WEBRTC_SRC": "$env{RLINK_WEBRTC_SRC}",
+        "RLINK_WEBRTC_OUT": "$env{RLINK_WEBRTC_OUT}"
       }
     }
   ],

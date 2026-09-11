@@ -1,8 +1,0 @@
-# Copy this file to cmake/RlinkLocal.cmake (Git-ignored) and adjust the paths
-# for your machine. The CMake cache variables can also be passed with -D.
-#
-# Example for the reference build environment:
-#
-# set(RLINK_QT_DIR "D:/Qt6/6.11.2/msvc2022_64" CACHE PATH "" FORCE)
-# set(RLINK_WEBRTC_SRC "D:/webrtc_src/src" CACHE PATH "" FORCE)
-# set(RLINK_WEBRTC_OUT "D:/webrtc_src/src/out/ReleaseMD" CACHE PATH "" FORCE)

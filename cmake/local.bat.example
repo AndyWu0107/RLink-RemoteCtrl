@@ -1,0 +1,14 @@
+@echo off
+rem ---------------------------------------------------------------------------
+rem Per-machine dependency paths for the RemoteC CMake build.
+rem
+rem Copy this file to  cmake\local.bat  (Git-ignored) and adjust the paths.
+rem cmake_configure.bat loads it automatically when present; it is not tracked.
+rem
+rem Alternatively set these as persistent user environment variables and skip
+rem this file entirely.
+rem ---------------------------------------------------------------------------
+
+set "RLINK_QT_DIR=D:\Qt6\6.11.2\msvc2022_64"
+set "RLINK_WEBRTC_SRC=D:\webrtc_src\src"
+set "RLINK_WEBRTC_OUT=D:\webrtc_src\src\out\ReleaseMD"
