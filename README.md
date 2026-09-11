@@ -116,11 +116,11 @@ English readers can use [Building RLink on Windows](BUILDING.md).
 
 ```powershell
 .\cmake_configure.bat
-cmake --build --preset windows-msvc-x64-v143-release -- /m
+cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 也可直接用 CMake 预设：`cmake --preset windows-msvc-x64-v143` 后
-`cmake --build --preset windows-msvc-x64-v143-release -- /m`。
+`cmake --build --preset windows-msvc-x64-v143-release -j`。
 
 主要产物位于 `x64\Release`：
 

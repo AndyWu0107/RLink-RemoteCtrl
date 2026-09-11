@@ -215,14 +215,14 @@ From the repository root, either run the helper script:
 
 ```powershell
 .\cmake_configure.bat
-cmake --build --preset windows-msvc-x64-v143-release -- /m
+cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 or use the CMake preset directly:
 
 ```powershell
 cmake --preset windows-msvc-x64-v143
-cmake --build --preset windows-msvc-x64-v143-release -- /m
+cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 `cmake --preset windows-msvc-x64-v143` configures a `Visual Studio 17 2022` x64 project

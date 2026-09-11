@@ -207,14 +207,14 @@ set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
 
 ```powershell
 .\cmake_configure.bat
-cmake --build --preset windows-msvc-x64-v143-release -- /m
+cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 也可以直接使用 CMake 预设：
 
 ```powershell
 cmake --preset windows-msvc-x64-v143
-cmake --build --preset windows-msvc-x64-v143-release -- /m
+cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 `cmake --preset windows-msvc-x64-v143` 会在 `out\build\windows-msvc-x64-v143` 下生成
