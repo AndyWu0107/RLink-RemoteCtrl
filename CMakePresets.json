@@ -1,0 +1,27 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "windows-v143",
+      "displayName": "Windows x64 - VS2022 v143 (MSVC 14.44) - Qt 6.11 - WebRTC prebuilt",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "toolset": "v143",
+      "binaryDir": "${sourceDir}/build-cmake/v143",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
+        "RLINK_QT_DIR": "D:/Qt6/6.11.2/msvc2022_64",
+        "RLINK_WEBRTC_SRC": "D:/webrtc_src/src",
+        "RLINK_WEBRTC_OUT": "D:/webrtc_src/src/out/ReleaseMD"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release-v143",
+      "configurePreset": "windows-v143",
+      "configuration": "Release"
+    }
+  ]
+}

@@ -6,6 +6,13 @@ LocalBuild.props
 *.VC.db
 *.VC.VC.opendb
 
+# CMake local state and build trees
+/build-cmake/
+/CMakeUserPresets.json
+/cmake/RlinkLocal.cmake
+CMakeCache.txt
+CMakeFiles/
+
 # Build output
 x64/
 [Dd]ebug/
