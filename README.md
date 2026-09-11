@@ -122,6 +122,9 @@ cmake --build --preset windows-msvc-x64-v143-release -j
 也可直接用 CMake 预设：`cmake --preset windows-msvc-x64-v143` 后
 `cmake --build --preset windows-msvc-x64-v143-release -j`。
 
+Debug 构建使用 `cmake --build --preset windows-msvc-x64-v143-debug -j`，
+需要先按构建指南准备 Debug 版 WebRTC。
+
 主要产物位于 `x64\Release`：
 
 - `RLinkAPP.exe`：RLink 客户端，控制端与采集端共用。

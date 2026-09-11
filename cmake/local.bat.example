@@ -12,3 +12,4 @@ rem ---------------------------------------------------------------------------
 set "RLINK_QT_DIR=D:\Qt6\6.11.2\msvc2022_64"
 set "RLINK_WEBRTC_SRC=D:\webrtc_src\src"
 set "RLINK_WEBRTC_OUT=D:\webrtc_src\src\out\ReleaseMD"
+set "RLINK_WEBRTC_OUT_DEBUG=D:\webrtc_src\src\out\DebugMD"

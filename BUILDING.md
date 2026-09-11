@@ -172,23 +172,63 @@ If you change the WebRTC commit or GN arguments, remove the old output
 directory and regenerate it. Never mix headers and libraries generated from
 different revisions.
 
+### Debug WebRTC (required for Debug builds)
+
+A Debug application links a Debug build of WebRTC, so a second GN output tree is
+required. It uses the dynamic debug CRT (`/MDd`) and, matching upstream Chromium,
+`_HAS_ITERATOR_DEBUGGING=0` (see `build/config/BUILD.gn`). The CMake Debug
+configuration defines the same macro so `_ITERATOR_DEBUG_LEVEL` matches.
+
+Create `E:\webrtc_src\src\out\DebugMD\args.gn` — same arguments, `is_debug = true`:
+
+```gn
+is_debug = true
+target_cpu = "x64"
+rtc_include_tests = false
+use_custom_libcxx = false
+use_lld = false
+use_dynamic_crt_for_webrtc = true
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+```
+
+Generate and build it with the same toolchain override:
+
+```powershell
+Set-Location E:\webrtc_src\src
+$env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+
+gn gen out\DebugMD
+third_party\ninja\ninja.exe -C out\DebugMD `
+  webrtc `
+  builtin_video_decoder_factory `
+  builtin_video_encoder_factory `
+  api/video:adapted_video_track_source
+```
+
+The Debug tree is optional: skip it if you only need Release. If you build both
+configurations (section 6), keep `out\ReleaseMD` and `out\DebugMD` separate.
+
 ## 5. Configure local paths
 
-RLink does not commit machine-specific paths. The CMake build reads three
+RLink does not commit machine-specific paths. The CMake build reads these
 environment variables:
 
 | Variable | Meaning |
 | --- | --- |
 | `RLINK_QT_DIR` | Qt 6.11+ `msvc2022_64` kit (must contain `lib\cmake\Qt6`) |
 | `RLINK_WEBRTC_SRC` | WebRTC source checkout |
-| `RLINK_WEBRTC_OUT` | WebRTC GN output directory (`out\ReleaseMD`) |
+| `RLINK_WEBRTC_OUT` | WebRTC GN output directory for Release (`out\ReleaseMD`) |
+| `RLINK_WEBRTC_OUT_DEBUG` | WebRTC GN output directory for Debug (`out\DebugMD`); optional, defaults to `<RLINK_WEBRTC_SRC>\out\DebugMD` |
 
 Set them for the current shell, or persistently for the user:
 
 ```powershell
-$env:RLINK_QT_DIR     = 'E:\Qt6\6.11.1\msvc2022_64'
-$env:RLINK_WEBRTC_SRC = 'E:\webrtc_src\src'
-$env:RLINK_WEBRTC_OUT = 'E:\webrtc_src\src\out\ReleaseMD'
+$env:RLINK_QT_DIR           = 'E:\Qt6\6.11.1\msvc2022_64'
+$env:RLINK_WEBRTC_SRC       = 'E:\webrtc_src\src'
+$env:RLINK_WEBRTC_OUT       = 'E:\webrtc_src\src\out\ReleaseMD'
+$env:RLINK_WEBRTC_OUT_DEBUG = 'E:\webrtc_src\src\out\DebugMD'   # Debug builds only
 ```
 
 On Windows you can instead keep them in a Git-ignored file. Copy the template:
@@ -203,6 +243,7 @@ and edit `cmake\local.bat`:
 set "RLINK_QT_DIR=E:\Qt6\6.11.1\msvc2022_64"
 set "RLINK_WEBRTC_SRC=E:\webrtc_src\src"
 set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
+set "RLINK_WEBRTC_OUT_DEBUG=E:\webrtc_src\src\out\DebugMD"
 ```
 
 `cmake_configure.bat` loads `cmake\local.bat` automatically when present.
@@ -226,8 +267,17 @@ cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 `cmake --preset windows-msvc-x64-v143` configures a `Visual Studio 17 2022` x64 project
-with toolset `v143` into `out\build\windows-msvc-x64-v143`. The build copies Qt, FFmpeg, and
-platform plugins into `x64\Release`.
+with toolset `v143` into `out\build\windows-msvc-x64-v143`. The generator is
+multi-configuration, so one configure supports both configurations:
+
+```powershell
+cmake --build --preset windows-msvc-x64-v143-release -j   # -> x64\Release
+cmake --build --preset windows-msvc-x64-v143-debug   -j   # -> x64\Debug
+```
+
+The Debug build requires the Debug WebRTC tree from section 4. Each build copies
+Qt, FFmpeg, and platform plugins into `x64\<Config>` (Debug uses
+`windeployqt --debug`).
 
 If you change an environment variable and the CMake cache is stale, reconfigure
 with `--fresh`:
@@ -264,12 +314,28 @@ introduced in Qt 6.11.
 
 ### WebRTC static libraries were not found
 
-`RLINK_WEBRTC_OUT` must be the GN output directory (for example
-`out\ReleaseMD`). CMake looks for `obj\webrtc.lib` inside it.
+`RLINK_WEBRTC_OUT` (Release) or `RLINK_WEBRTC_OUT_DEBUG` (Debug) must point at
+the GN output directory (for example `out\ReleaseMD` / `out\DebugMD`). CMake
+looks for `obj\webrtc.lib` inside each. A missing Debug tree only produces a
+configure-time warning; the Debug link then fails.
 
 ### LNK2038: RuntimeLibrary mismatch
 
-The build uses `/MD`. Regenerate WebRTC with dynamic CRT (see section 4).
+Release uses `/MD` and Debug uses `/MDd`. Regenerate WebRTC for the matching
+configuration (section 4).
+
+### LNK2038: _ITERATOR_DEBUG_LEVEL mismatch (Debug)
+
+WebRTC is built with `_HAS_ITERATOR_DEBUGGING=0` even in Debug. A Debug target
+that links WebRTC must define the same macro (the shared `rlink_project`
+interface does this automatically). Otherwise the linker reports
+`_ITERATOR_DEBUG_LEVEL` value `0` vs `2`.
+
+### Debug RLinkAPP reports "Run-Time Check Failure #2"
+
+CMake's Debug configuration enables `/RTC1`, which traps stack corruption that
+Release silently ignores. Such a failure indicates a real buffer/stack bug in
+the code, not a build configuration problem.
 
 ### LNK2001: unresolved `__std_*` symbols when linking RLinkAPP
 

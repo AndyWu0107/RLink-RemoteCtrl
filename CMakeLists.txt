@@ -19,7 +19,9 @@ set(RLINK_QT_DIR "$ENV{RLINK_QT_DIR}" CACHE PATH
 set(RLINK_WEBRTC_SRC "$ENV{RLINK_WEBRTC_SRC}" CACHE PATH
     "WebRTC source checkout (env RLINK_WEBRTC_SRC)")
 set(RLINK_WEBRTC_OUT "$ENV{RLINK_WEBRTC_OUT}" CACHE PATH
-    "WebRTC GN out directory (env RLINK_WEBRTC_OUT)")
+    "WebRTC GN out directory for Release builds (env RLINK_WEBRTC_OUT)")
+set(RLINK_WEBRTC_OUT_DEBUG "$ENV{RLINK_WEBRTC_OUT_DEBUG}" CACHE PATH
+    "WebRTC GN out directory for Debug builds (env RLINK_WEBRTC_OUT_DEBUG)")
 set(RLINK_OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/x64" CACHE PATH
     "Root directory for build outputs")
 
@@ -32,13 +34,19 @@ if(NOT RLINK_QT_DIR OR NOT RLINK_WEBRTC_SRC OR NOT RLINK_WEBRTC_OUT)
     "-DRLINK_WEBRTC_OUT=... .")
 endif()
 
+# Debug WebRTC output defaults to <webrtc-src>/out/DebugMD when not provided.
+if(NOT RLINK_WEBRTC_OUT_DEBUG)
+  set(RLINK_WEBRTC_OUT_DEBUG "${RLINK_WEBRTC_SRC}/out/DebugMD" CACHE PATH
+      "WebRTC GN out directory for Debug builds" FORCE)
+endif()
+
 # ---------------------------------------------------------------------------
 # Language / runtime settings (C++20, /MD, UTF-8, SDL checks)
 # ---------------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
 if(NOT WIN32)

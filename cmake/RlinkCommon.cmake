@@ -12,7 +12,10 @@ if(MSVC)
   target_compile_options(rlink_project INTERFACE
     /utf-8 /Zc:__cplusplus /permissive- /MP /W3 /sdl /Zi)
   target_compile_definitions(rlink_project INTERFACE
-    _UNICODE UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    _UNICODE UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
+    # WebRTC is built with _HAS_ITERATOR_DEBUGGING=0 even in Debug
+    # (build/config/BUILD.gn). Match it so Debug links against Debug WebRTC.
+    "$<$<CONFIG:Debug>:_HAS_ITERATOR_DEBUGGING=0>")
   target_link_options(rlink_project INTERFACE /DEBUG)
 endif()
 

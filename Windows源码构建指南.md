@@ -166,22 +166,62 @@ out\ReleaseMD\gen
 如果修改了 WebRTC commit 或 GN 参数，应删除旧输出目录后重新生成，不能
 把不同版本产生的头文件与 `.lib` 混用。
 
+### Debug 版 WebRTC（Debug 构建必需）
+
+Debug 主程序要链接 Debug 版 WebRTC，因此需要第二份 GN 输出目录。它使用
+动态调试 CRT（`/MDd`），并与上游 Chromium 一致地定义
+`_HAS_ITERATOR_DEBUGGING=0`（见 `build/config/BUILD.gn`）。CMake 的 Debug
+配置会定义同一宏，使 `_ITERATOR_DEBUG_LEVEL` 匹配。
+
+创建 `E:\webrtc_src\src\out\DebugMD\args.gn`（参数相同，`is_debug = true`）：
+
+```gn
+is_debug = true
+target_cpu = "x64"
+rtc_include_tests = false
+use_custom_libcxx = false
+use_lld = false
+use_dynamic_crt_for_webrtc = true
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+```
+
+用相同的工具链覆盖生成并编译：
+
+```powershell
+Set-Location E:\webrtc_src\src
+$env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+
+gn gen out\DebugMD
+third_party\ninja\ninja.exe -C out\DebugMD `
+  webrtc `
+  builtin_video_decoder_factory `
+  builtin_video_encoder_factory `
+  api/video:adapted_video_track_source
+```
+
+Debug 输出目录是可选的：只做 Release 构建时无需生成。若同时构建两种配置
+（见第 6 节），请保持 `out\ReleaseMD` 与 `out\DebugMD` 相互独立。
+
 ## 5. 配置本机路径
 
-RLink 不会把本机路径提交到 Git。CMake 构建读取三个环境变量：
+RLink 不会把本机路径提交到 Git。CMake 构建读取以下环境变量：
 
 | 变量 | 含义 |
 | --- | --- |
 | `RLINK_QT_DIR` | Qt 6.11+ `msvc2022_64` 套件（需含 `lib\cmake\Qt6`） |
 | `RLINK_WEBRTC_SRC` | WebRTC 源码目录 |
-| `RLINK_WEBRTC_OUT` | WebRTC 的 GN 输出目录（`out\ReleaseMD`） |
+| `RLINK_WEBRTC_OUT` | Release 用的 GN 输出目录（`out\ReleaseMD`） |
+| `RLINK_WEBRTC_OUT_DEBUG` | Debug 用的 GN 输出目录（`out\DebugMD`）；可选，缺省为 `<RLINK_WEBRTC_SRC>\out\DebugMD` |
 
 在当前终端临时设置，或设为用户级持久变量：
 
 ```powershell
-$env:RLINK_QT_DIR     = 'E:\Qt6\6.11.1\msvc2022_64'
-$env:RLINK_WEBRTC_SRC = 'E:\webrtc_src\src'
-$env:RLINK_WEBRTC_OUT = 'E:\webrtc_src\src\out\ReleaseMD'
+$env:RLINK_QT_DIR           = 'E:\Qt6\6.11.1\msvc2022_64'
+$env:RLINK_WEBRTC_SRC       = 'E:\webrtc_src\src'
+$env:RLINK_WEBRTC_OUT       = 'E:\webrtc_src\src\out\ReleaseMD'
+$env:RLINK_WEBRTC_OUT_DEBUG = 'E:\webrtc_src\src\out\DebugMD'   # 仅 Debug 构建需要
 ```
 
 在 Windows 上也可以放进一个被 Git 忽略的本地文件。复制模板：
@@ -196,6 +236,7 @@ copy cmake\local.bat.example cmake\local.bat
 set "RLINK_QT_DIR=E:\Qt6\6.11.1\msvc2022_64"
 set "RLINK_WEBRTC_SRC=E:\webrtc_src\src"
 set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
+set "RLINK_WEBRTC_OUT_DEBUG=E:\webrtc_src\src\out\DebugMD"
 ```
 
 `cmake_configure.bat` 会在该文件存在时自动加载它。`cmake\local.bat` 已被
@@ -218,8 +259,16 @@ cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
 `cmake --preset windows-msvc-x64-v143` 会在 `out\build\windows-msvc-x64-v143` 下生成
-`Visual Studio 17 2022`、x64、工具集 `v143` 的工程。构建过程会把 Qt、
-FFmpeg 和平台插件复制到 `x64\Release`。
+`Visual Studio 17 2022`、x64、工具集 `v143` 的工程。该生成器是多配置的，一次
+configure 即可构建两种配置：
+
+```powershell
+cmake --build --preset windows-msvc-x64-v143-release -j   # -> x64\Release
+cmake --build --preset windows-msvc-x64-v143-debug   -j   # -> x64\Debug
+```
+
+Debug 构建需要第 4 节的 Debug 版 WebRTC。两种配置都会把 Qt、FFmpeg 和平台
+插件复制到 `x64\<Config>`（Debug 使用 `windeployqt --debug`）。
 
 如果修改了环境变量而 CMake 缓存仍是旧值，用 `--fresh` 重新配置：
 
@@ -254,12 +303,24 @@ Qt 6.8 及更早版本不满足要求：代码使用了 Qt 6.11 引入的 Networ
 
 ### WebRTC static libraries were not found
 
-`RLINK_WEBRTC_OUT` 必须指向 GN 输出目录（例如 `out\ReleaseMD`），CMake 会在
-其下查找 `obj\webrtc.lib`。
+`RLINK_WEBRTC_OUT`（Release）或 `RLINK_WEBRTC_OUT_DEBUG`（Debug）必须指向
+相应的 GN 输出目录（`out\ReleaseMD` / `out\DebugMD`），CMake 会在其下查找
+`obj\webrtc.lib`。缺少 Debug 目录在 configure 阶段只是警告，Debug 链接时才会失败。
 
 ### LNK2038：RuntimeLibrary 不匹配
 
-构建固定使用 `/MD`。按第 4 节用动态 CRT 重新生成 WebRTC。
+Release 用 `/MD`、Debug 用 `/MDd`。按第 4 节为对应配置重新生成 WebRTC。
+
+### LNK2038：`_ITERATOR_DEBUG_LEVEL` 不匹配（Debug）
+
+WebRTC 即使在 Debug 下也定义了 `_HAS_ITERATOR_DEBUGGING=0`。链接 WebRTC 的
+Debug 目标必须定义同一宏（公共接口 `rlink_project` 已自动处理），否则会报
+`_ITERATOR_DEBUG_LEVEL` 值 `0` 与 `2` 不匹配。
+
+### Debug 版 RLinkAPP 报 “Run-Time Check Failure #2”
+
+CMake 的 Debug 配置会启用 `/RTC1`，它能捕获 Release 会静默忽略的栈破坏。出现
+该错误说明代码中存在真实的缓冲区/栈越界，而非构建配置问题。
 
 ### 链接 RLinkAPP 时出现无法解析的 `__std_*` 符号（LNK2001）
 
