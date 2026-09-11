@@ -13,7 +13,7 @@ rem  If a Git-ignored cmake\local.bat exists (see cmake\local.bat.example) it is
 rem  loaded first, so a machine can keep its paths in one small local file.
 rem
 rem  This configures only; build with:
-rem    cmake --build --preset release-v143 -- /m
+rem    cmake --build --preset windows-msvc-x64-v143-release -- /m
 rem ===========================================================================
 
 rem --- load per-machine paths (optional) ------------------------------------
@@ -46,7 +46,7 @@ echo [configure] WebRTC out  = %RLINK_WEBRTC_OUT%
 echo.
 
 cd /d "%~dp0"
-cmake --preset windows-v143
+cmake --preset windows-msvc-x64-v143
 if errorlevel 1 (
   echo.
   echo [ERROR] CMake configure failed.
@@ -55,5 +55,5 @@ if errorlevel 1 (
 
 echo.
 echo [configure] done. Build with:
-echo   cmake --build --preset release-v143 -- /m
+echo   cmake --build --preset windows-msvc-x64-v143-release -- /m
 exit /b 0

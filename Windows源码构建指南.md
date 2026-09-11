@@ -207,24 +207,24 @@ set "RLINK_WEBRTC_OUT=E:\webrtc_src\src\out\ReleaseMD"
 
 ```powershell
 .\cmake_configure.bat
-cmake --build --preset release-v143 -- /m
+cmake --build --preset windows-msvc-x64-v143-release -- /m
 ```
 
 也可以直接使用 CMake 预设：
 
 ```powershell
-cmake --preset windows-v143
-cmake --build --preset release-v143 -- /m
+cmake --preset windows-msvc-x64-v143
+cmake --build --preset windows-msvc-x64-v143-release -- /m
 ```
 
-`cmake --preset windows-v143` 会在 `build-cmake\v143` 下生成
+`cmake --preset windows-msvc-x64-v143` 会在 `out\build\windows-msvc-x64-v143` 下生成
 `Visual Studio 17 2022`、x64、工具集 `v143` 的工程。构建过程会把 Qt、
 FFmpeg 和平台插件复制到 `x64\Release`。
 
 如果修改了环境变量而 CMake 缓存仍是旧值，用 `--fresh` 重新配置：
 
 ```powershell
-cmake --preset windows-v143 --fresh
+cmake --preset windows-msvc-x64-v143 --fresh
 ```
 
 成功后检查：

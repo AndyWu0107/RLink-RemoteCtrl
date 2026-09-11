@@ -215,25 +215,25 @@ From the repository root, either run the helper script:
 
 ```powershell
 .\cmake_configure.bat
-cmake --build --preset release-v143 -- /m
+cmake --build --preset windows-msvc-x64-v143-release -- /m
 ```
 
 or use the CMake preset directly:
 
 ```powershell
-cmake --preset windows-v143
-cmake --build --preset release-v143 -- /m
+cmake --preset windows-msvc-x64-v143
+cmake --build --preset windows-msvc-x64-v143-release -- /m
 ```
 
-`cmake --preset windows-v143` configures a `Visual Studio 17 2022` x64 project
-with toolset `v143` into `build-cmake\v143`. The build copies Qt, FFmpeg, and
+`cmake --preset windows-msvc-x64-v143` configures a `Visual Studio 17 2022` x64 project
+with toolset `v143` into `out\build\windows-msvc-x64-v143`. The build copies Qt, FFmpeg, and
 platform plugins into `x64\Release`.
 
 If you change an environment variable and the CMake cache is stale, reconfigure
 with `--fresh`:
 
 ```powershell
-cmake --preset windows-v143 --fresh
+cmake --preset windows-msvc-x64-v143 --fresh
 ```
 
 Verify the main outputs after a successful build:
