@@ -14,7 +14,7 @@ function(rlink_deploy_qt target)
   endif()
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND "${_windeployqt}"
-            "$<$<CONFIG:Debug>:--debug>"
+            "$<IF:$<CONFIG:Debug>,--debug,--release>"
             --no-translations
             --no-system-d3d-compiler
             --no-opengl-sw

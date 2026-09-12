@@ -215,14 +215,19 @@ different revisions.
 ### Debug WebRTC (required for Debug builds)
 
 A Debug application links a Debug build of WebRTC, so a second GN output tree is
-required. It uses the dynamic debug CRT (`/MDd`) and, matching upstream Chromium,
-`_HAS_ITERATOR_DEBUGGING=0` (see `build/config/BUILD.gn`). The CMake Debug
-configuration defines the same macro so `_ITERATOR_DEBUG_LEVEL` matches.
+required. It uses the dynamic debug CRT (`/MDd`) and, unlike upstream Chromium's
+default, iterator debugging must stay **enabled** so that WebRTC uses
+`_ITERATOR_DEBUG_LEVEL=2`. Qt's debug DLLs are built with the MSVC default
+(IDL 2) and cannot be changed, so the application and WebRTC must both match
+them: `std::string`/`std::wstring` have a different layout at IDL 0 versus 2,
+and returning one by value across the Qt DLL boundary corrupts the caller's
+stack.
 
 Create `E:\webrtc_src\src\out\DebugMD\args.gn` — same arguments, `is_debug = true`:
 
 ```gn
 is_debug = true
+enable_iterator_debugging = true
 target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
@@ -376,16 +381,20 @@ for the matching configuration.
 
 ### LNK2038: _ITERATOR_DEBUG_LEVEL mismatch (Debug)
 
-WebRTC is built with `_HAS_ITERATOR_DEBUGGING=0` even in Debug. A Debug target
-that links WebRTC must define the same macro (the shared `rlink_project`
-interface does this automatically). Otherwise the linker reports
-`_ITERATOR_DEBUG_LEVEL` value `0` vs `2`.
+Qt's debug DLLs use `_ITERATOR_DEBUG_LEVEL=2`, so the Debug application must too
+(do not define `_HAS_ITERATOR_DEBUGGING=0`). The Debug WebRTC tree must be built
+with `enable_iterator_debugging = true`; otherwise `webrtc.lib` carries
+`_ITERATOR_DEBUG_LEVEL=0` and the linker reports `0` vs `2` against the app.
 
 ### Debug RLinkAPP reports "Run-Time Check Failure #2"
 
-CMake's Debug configuration enables `/RTC1`, which traps stack corruption that
-Release silently ignores. Such a failure indicates a real buffer/stack bug in
-the code, not a build configuration problem.
+`/RTC1` traps stack corruption. If the reported variable is a `std::string` /
+`std::wstring` at a Qt call boundary (for example `encoded` in
+`WriteCurrentUserRegistryString`, from `QString::toStdWString()`), the cause is
+an `_ITERATOR_DEBUG_LEVEL` mismatch: rebuild the Debug WebRTC tree with
+`enable_iterator_debugging = true` and do not define
+`_HAS_ITERATOR_DEBUGGING=0` in the application (see section 4). A genuine code
+buffer overflow can also produce this error.
 
 ### LNK2001: unresolved `__std_*` symbols when linking RLinkAPP
 

@@ -74,8 +74,13 @@ function Invoke-Native([string]$Name, [scriptblock]$Command) {
 
 function Get-WebRtcArgs([bool]$IsDebug) {
     $isDebugValue = if ($IsDebug) { 'true' } else { 'false' }
+    # Debug must match Qt's debug DLLs, which use the MSVC default
+    # _ITERATOR_DEBUG_LEVEL=2; enabling iterator debugging stops WebRTC from
+    # defining _HAS_ITERATOR_DEBUGGING=0 (see build/config/BUILD.gn).
+    $iteratorDebugging = $isDebugValue
     return @(
         "is_debug = $isDebugValue",
+        "enable_iterator_debugging = $iteratorDebugging",
         'target_cpu = "x64"',
         'rtc_include_tests = false',
         'use_custom_libcxx = false',

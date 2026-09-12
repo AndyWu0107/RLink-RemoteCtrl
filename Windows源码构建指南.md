@@ -202,14 +202,17 @@ out\ReleaseMD\gen
 ### Debug 版 WebRTC（Debug 构建必需）
 
 Debug 主程序要链接 Debug 版 WebRTC，因此需要第二份 GN 输出目录。它使用
-动态调试 CRT（`/MDd`），并与上游 Chromium 一致地定义
-`_HAS_ITERATOR_DEBUGGING=0`（见 `build/config/BUILD.gn`）。CMake 的 Debug
-配置会定义同一宏，使 `_ITERATOR_DEBUG_LEVEL` 匹配。
+动态调试 CRT（`/MDd`）；与上游 Chromium 的默认不同，这里必须**保持开启**
+迭代器调试，使 WebRTC 使用 `_ITERATOR_DEBUG_LEVEL=2`。Qt 的调试运行库用的是
+MSVC 默认的 IDL 2 且不可更改，所以主程序与 WebRTC 都必须对齐到 2：
+`std::string`/`std::wstring` 在 IDL 0 与 2 下的布局不同，按值跨 Qt DLL 边界
+返回时会把调用方的栈写坏。
 
 创建 `E:\webrtc_src\src\out\DebugMD\args.gn`（参数相同，`is_debug = true`）：
 
 ```gn
 is_debug = true
+enable_iterator_debugging = true
 target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
@@ -356,14 +359,19 @@ WebRTC 使用了静态 CRT（`/MT`/`/MTd`）而非 `/MD`/`/MDd`。部分文档�
 
 ### LNK2038：`_ITERATOR_DEBUG_LEVEL` 不匹配（Debug）
 
-WebRTC 即使在 Debug 下也定义了 `_HAS_ITERATOR_DEBUGGING=0`。链接 WebRTC 的
-Debug 目标必须定义同一宏（公共接口 `rlink_project` 已自动处理），否则会报
-`_ITERATOR_DEBUG_LEVEL` 值 `0` 与 `2` 不匹配。
+Qt 的调试运行库使用 `_ITERATOR_DEBUG_LEVEL=2`，因此 Debug 主程序也必须使用 2
+（不要定义 `_HAS_ITERATOR_DEBUGGING=0`）。Debug 版 WebRTC 必须用
+`enable_iterator_debugging = true` 构建，否则 `webrtc.lib` 带的是
+`_ITERATOR_DEBUG_LEVEL=0`，链接时会报 `0` 与 `2` 不匹配。
 
 ### Debug 版 RLinkAPP 报 “Run-Time Check Failure #2”
 
-CMake 的 Debug 配置会启用 `/RTC1`，它能捕获 Release 会静默忽略的栈破坏。出现
-该错误说明代码中存在真实的缓冲区/栈越界，而非构建配置问题。
+`/RTC1` 会捕获栈破坏。若被点名的变量是处在 Qt 调用边界上的 `std::string` /
+`std::wstring`（例如 `WriteCurrentUserRegistryString` 里由
+`QString::toStdWString()` 得到的 `encoded`），根因就是
+`_ITERATOR_DEBUG_LEVEL` 不一致：用 `enable_iterator_debugging = true` 重建
+Debug 版 WebRTC，并且不要在应用中定义 `_HAS_ITERATOR_DEBUGGING=0`（见第 4 节）。
+当然，真实的代码缓冲区越界也会产生该错误。
 
 ### 链接 RLinkAPP 时出现无法解析的 `__std_*` 符号（LNK2001）
 
