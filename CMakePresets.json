@@ -5,7 +5,7 @@
     {
       "name": "base",
       "hidden": true,
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "RLINK_OUTPUT_DIR": "${sourceDir}/x64",
         "RLINK_QT_DIR": "$env{RLINK_QT_DIR}",

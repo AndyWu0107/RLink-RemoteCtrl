@@ -308,8 +308,9 @@ cmake --preset windows-msvc-x64-v143
 cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
-`cmake --preset windows-msvc-x64-v143` configures a `Visual Studio 17 2022` x64 project
-with toolset `v143` into `out\build\windows-msvc-x64-v143`. The generator is
+`cmake --preset windows-msvc-x64-v143` configures a `Visual Studio 17 2022` x64
+project with toolset `v143` into the repository root's `build\` directory (the
+generated solution is `build\RLinkRemoteCtrl.sln`). The generator is
 multi-configuration, so one configure supports both configurations:
 
 ```powershell

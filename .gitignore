@@ -5,6 +5,7 @@
 
 # CMake local state and build trees
 /out/
+/build/
 /CMakeUserPresets.json
 /cmake/local.bat
 CMakeCache.txt

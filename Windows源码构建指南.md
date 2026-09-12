@@ -293,9 +293,10 @@ cmake --preset windows-msvc-x64-v143
 cmake --build --preset windows-msvc-x64-v143-release -j
 ```
 
-`cmake --preset windows-msvc-x64-v143` 会在 `out\build\windows-msvc-x64-v143` 下生成
-`Visual Studio 17 2022`、x64、工具集 `v143` 的工程。该生成器是多配置的，一次
-configure 即可构建两种配置：
+`cmake --preset windows-msvc-x64-v143` 会在仓库根目录的 `build\` 下生成
+`Visual Studio 17 2022`、x64、工具集 `v143` 的工程（解决方案文件为
+`build\RLinkRemoteCtrl.sln`）。该生成器是多配置的，一次 configure 即可构建两种
+配置：
 
 ```powershell
 cmake --build --preset windows-msvc-x64-v143-release -j   # -> x64\Release
