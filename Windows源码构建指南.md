@@ -68,14 +68,16 @@ Qt 扩展。
 
 WebRTC 由 GN 单独编译，其静态库会被链接进 `RLinkAPP.exe`。WebRTC 使用的
 MSVC STL 必须与 CMake 构建一致：若 WebRTC 用 14.51、主程序用 14.44 之类的
-不同工具集，链接时会出现无法解析的 `__std_*` 符号。
+不同工具集，链接时会出现无法解析的 `__std_*` 符号（`LNK2001`）。这与第 4 节
+要处理的 `/MT` 与 `/MD` 不匹配是两类不同的问题。
 
-让两侧保持同一工具集。生成 WebRTC 时把 depot_tools 指向 VS2022 生成工具，
-使其选用 `14.44.35207`：
+让两侧保持同一工具集。生成 WebRTC 时把 depot_tools 指向你本机的 VS2022
+安装（生成工具或 IDE，按实际路径调整），使其选用同一 MSVC，例如
+`14.44.35207`：
 
 ```powershell
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 ```
 
 ## 3. 克隆源码
@@ -107,6 +109,18 @@ git checkout 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
 gclient sync -D
 ```
 
+`scripts\Prepare-LibWebRtc.ps1` 可自动完成本节全部工作：必要时引导
+depot_tools 包装脚本、拉取固定 revision、应用下面的 CRT 修补、写入两个
+`args.gn`，并编译 `out\ReleaseMD` 与 `out\DebugMD`。
+
+手工操作时需要注意 depot_tools 的两个坑：
+
+- 全新克隆的 depot_tools 在引导完成前不会生成 `git.bat`，此时 `gclient` 会
+  抛出令人困惑的 `git.bat` `FileNotFoundError`。先运行一次
+  `<depot_tools>\bootstrap\win_tools.bat`。
+- 目标目录里已存在 `.gclient` 时，`fetch` 会拒绝继续（提示
+  “already contain ... a checkout”），此时改为在该目录执行 `gclient sync`。
+
 在 `E:\webrtc_src\src\out\ReleaseMD\args.gn` 写入：
 
 ```gn
@@ -115,22 +129,41 @@ target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
 use_lld = false
-use_dynamic_crt_for_webrtc = true
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
 
-`use_dynamic_crt_for_webrtc = true` 用于选择动态 CRT（`/MD`）以匹配 CMake
-构建；若 WebRTC 使用 `/MT`，链接时会出现 `LNK2038 RuntimeLibrary` 不匹配。
-在较新的 WebRTC 版本中该参数可能已不在 `declare_args()` 中，此时默认即为
-`/MD`，该赋值无害。
+#### 选择动态 CRT（`/MD`）
+
+这个固定的 WebRTC revision **没有任何 GN 参数**可以选择动态 CRT。旧版本文档
+提到的 `use_dynamic_crt_for_webrtc = true` 在该 revision 中根本未声明，GN 会
+静默忽略它，构建出的仍是**静态** CRT。对非 component 的桌面构建，
+`build/config/win/BUILD.gn` 的 `default_crt` 选择 `:static_crt`；也不能改用
+`is_component_build`，因为 `webrtc.gni` 明确断言不支持 component build。把
+`/MT` 的 WebRTC 链接进使用 `/MD` 的 `RLinkAPP`（与 Qt 一致）时，会出现
+`LNK2038`/`LNK1319` RuntimeLibrary 不匹配。
+
+因此需要修改 WebRTC 检出中的 `build/config/win/BUILD.gn`，让
+`config("default_crt")` 在桌面 Windows 下使用 `:dynamic_crt`：
+
+```gn
+    } else {
+      # Desktop Windows: dynamic CRT (/MD; /MDd when is_debug = true) to match
+      # the Qt/CMake RLink build.
+      configs = [ ":dynamic_crt" ]
+    }
+```
+
+`scripts\Prepare-LibWebRtc.ps1` 会在 `gn gen` 之前自动应用该修补。修补位于
+WebRTC 检出（本仓库之外），若某次 `gclient sync` 更新了 `build` 依赖就会
+被覆盖；链接再次出现 CRT 不匹配时，重跑脚本或重新应用即可。
 
 生成并编译 WebRTC（同时应用第 2 节的 v143 工具链覆盖）：
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 
 gn gen out\ReleaseMD
 autoninja -C out\ReleaseMD `
@@ -181,17 +214,19 @@ target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
 use_lld = false
-use_dynamic_crt_for_webrtc = true
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
+
+Release 节中的同一处 `default_crt` 修补会让 Debug 树使用 `/MDd`；否则 Debug
+版 WebRTC 是 `/MTd`，会以完全相同的方式链接失败。
 
 用相同的工具链覆盖生成并编译：
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 
 gn gen out\DebugMD
 third_party\ninja\ninja.exe -C out\DebugMD `
@@ -270,6 +305,10 @@ cmake --build --preset windows-msvc-x64-v143-debug   -j   # -> x64\Debug
 Debug 构建需要第 4 节的 Debug 版 WebRTC。两种配置都会把 Qt、FFmpeg 和平台
 插件复制到 `x64\<Config>`（Debug 使用 `windeployqt --debug`）。
 
+即使只构建 Debug，CMake 也要求存在 Release 版 WebRTC 树：`RLINK_WEBRTC_OUT`
+必须已设置且其中含 `obj\webrtc.lib`（见 `cmake\RlinkWebRtc.cmake`）。做 Debug
+时请同时保留两棵输出树。
+
 如果修改了环境变量而 CMake 缓存仍是旧值，用 `--fresh` 重新配置：
 
 ```powershell
@@ -307,9 +346,12 @@ Qt 6.8 及更早版本不满足要求：代码使用了 Qt 6.11 引入的 Networ
 相应的 GN 输出目录（`out\ReleaseMD` / `out\DebugMD`），CMake 会在其下查找
 `obj\webrtc.lib`。缺少 Debug 目录在 configure 阶段只是警告，Debug 链接时才会失败。
 
-### LNK2038：RuntimeLibrary 不匹配
+### LNK2038 / LNK1319：RuntimeLibrary 不匹配
 
-Release 用 `/MD`、Debug 用 `/MDd`。按第 4 节为对应配置重新生成 WebRTC。
+WebRTC 使用了静态 CRT（`/MT`/`/MTd`）而非 `/MD`/`/MDd`。部分文档提到的 GN
+参数 `use_dynamic_crt_for_webrtc` 在该固定 revision 中并不存在、会被忽略，
+详见第 4 节。应用 `default_crt` 修补（或运行
+`scripts\Prepare-LibWebRtc.ps1`），再为对应配置重新编译 WebRTC。
 
 ### LNK2038：`_ITERATOR_DEBUG_LEVEL` 不匹配（Debug）
 
@@ -324,9 +366,10 @@ CMake 的 Debug 配置会启用 `/RTC1`，它能捕获 Release 会静默忽略�
 
 ### 链接 RLinkAPP 时出现无法解析的 `__std_*` 符号（LNK2001）
 
-WebRTC 与主程序使用了不同的 MSVC STL 版本。用与主程序相同的工具集重新生成
-WebRTC（`GYP_MSVS_OVERRIDE_PATH` 指向 VS2022 生成工具，即 MSVC
-14.44.35207），然后重新构建。
+这与上面的 RuntimeLibrary 不匹配是两类不同的问题：WebRTC 与主程序使用了
+不同的 MSVC STL 版本。用与主程序相同的工具集重新生成 WebRTC
+（`GYP_MSVS_OVERRIDE_PATH` 指向你本机的 VS2022 安装，即 MSVC 14.44.35207），
+然后重新构建。
 
 ### 找不到 builtin_video_* 或 adapted_video_track_source
 

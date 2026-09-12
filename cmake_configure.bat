@@ -5,15 +5,18 @@ rem ===========================================================================
 rem  RemoteC CMake configure helper (Windows x64, VS2022 v143, Qt 6.11+).
 rem
 rem  Dependency locations are taken from the environment:
-rem    RLINK_QT_DIR        Qt 6.11+ msvc2022_64 kit
-rem    RLINK_WEBRTC_SRC    WebRTC source checkout (built separately with GN)
-rem    RLINK_WEBRTC_OUT    WebRTC GN out dir (ReleaseMD)
+rem    RLINK_QT_DIR            Qt 6.11+ msvc2022_64 kit
+rem    RLINK_WEBRTC_SRC        WebRTC source checkout (built separately with GN)
+rem    RLINK_WEBRTC_OUT        WebRTC GN out dir (ReleaseMD)
+rem    RLINK_WEBRTC_OUT_DEBUG  WebRTC GN out dir (DebugMD); optional, defaults to
+rem                            <RLINK_WEBRTC_SRC>\out\DebugMD
 rem
 rem  If a Git-ignored cmake\local.bat exists (see cmake\local.bat.example) it is
 rem  loaded first, so a machine can keep its paths in one small local file.
 rem
 rem  This configures only; build with:
 rem    cmake --build --preset windows-msvc-x64-v143-release -j
+rem    cmake --build --preset windows-msvc-x64-v143-debug   -j
 rem ===========================================================================
 
 rem --- load per-machine paths (optional) ------------------------------------
@@ -55,5 +58,6 @@ if errorlevel 1 (
 
 echo.
 echo [configure] done. Build with:
-echo   cmake --build --preset windows-msvc-x64-v143-release -j
+echo   cmake --build --preset windows-msvc-x64-v143-release -j   ^(x64\Release^)
+echo   cmake --build --preset windows-msvc-x64-v143-debug   -j   ^(x64\Debug^)
 exit /b 0

@@ -72,13 +72,18 @@ WebRTC is compiled separately with GN, and its static libraries are linked into
 build. If WebRTC is built with a different toolset (for example MSVC 14.51 while
 the app uses 14.44), linking fails with unresolved `__std_*` symbols.
 
-Keep both sides on the same toolset. When generating WebRTC, point depot_tools
-at the VS2022 Build Tools installation so that WebRTC picks `14.44.35207`:
+Keep both sides on the same toolset. Point depot_tools at your VS2022
+installation (Build Tools or IDE — adjust the path for your machine) so that
+WebRTC picks the same MSVC, for example `14.44.35207`:
 
 ```powershell
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 ```
+
+A mismatch here surfaces as unresolved `__std_*` symbols (`LNK2001`), which is
+a different failure from the `/MT`-vs-`/MD` RuntimeLibrary mismatch covered in
+section 4.
 
 ## 3. Clone the source code
 
@@ -111,6 +116,20 @@ git checkout 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
 gclient sync -D
 ```
 
+`scripts\Prepare-LibWebRtc.ps1` automates this whole section: it bootstraps the
+depot_tools wrappers if needed, fetches the pinned revision, applies the CRT
+edit below, writes both `args.gn` files and builds `out\ReleaseMD` and
+`out\DebugMD`.
+
+Two depot_tools pitfalls to expect if doing it by hand:
+
+- A fresh depot_tools checkout does not create `git.bat` until its bootstrap
+  runs, and `gclient` fails with a confusing `FileNotFoundError` for `git.bat`
+  until then. Run `<depot_tools>\bootstrap\win_tools.bat` once.
+- `fetch` refuses to continue when the target directory already has a
+  `.gclient` ("already contain ... a checkout"). In that case run `gclient sync`
+  from that directory instead of `fetch`.
+
 Create `E:\webrtc_src\src\out\ReleaseMD\args.gn` with:
 
 ```gn
@@ -119,23 +138,44 @@ target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
 use_lld = false
-use_dynamic_crt_for_webrtc = true
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
 
-`use_dynamic_crt_for_webrtc = true` selects the dynamic CRT (`/MD`) to match
-the CMake build; a `/MT` WebRTC library produces an `LNK2038 RuntimeLibrary`
-mismatch at link time. On current WebRTC revisions this argument may not exist
-in `declare_args()`; in that case the default is already `/MD`, and the value is
-harmless.
+#### Match the dynamic CRT (`/MD`)
+
+The pinned WebRTC revision has **no GN argument** that selects the dynamic CRT.
+Older revisions of this guide mentioned `use_dynamic_crt_for_webrtc = true`, but
+that argument is not declared anywhere in this revision, so GN silently ignores
+it and the build still uses the **static** CRT. For a non-component desktop
+build, `build/config/win/BUILD.gn`'s `default_crt` selects `:static_crt`, and
+`is_component_build` cannot be used as a workaround because WebRTC asserts it is
+unsupported (`webrtc.gni`). Linking a `/MT` WebRTC into `RLinkAPP` — which, like
+Qt, uses `/MD` — fails with `LNK2038`/`LNK1319` RuntimeLibrary mismatches.
+
+Force the dynamic CRT by editing `build/config/win/BUILD.gn` in the WebRTC
+checkout so that `config("default_crt")` uses `:dynamic_crt` for desktop
+Windows:
+
+```gn
+    } else {
+      # Desktop Windows: dynamic CRT (/MD; /MDd when is_debug = true) to match
+      # the Qt/CMake RLink build.
+      configs = [ ":dynamic_crt" ]
+    }
+```
+
+`scripts\Prepare-LibWebRtc.ps1` applies this edit automatically before
+`gn gen`. The edit lives in the WebRTC checkout (outside this repository) and a
+`gclient sync` that updates the `build` dependency can overwrite it; re-run the
+script (or re-apply the edit) if linking later fails with CRT mismatches again.
 
 Generate and build WebRTC (using the v143 toolchain override from section 2):
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 
 gn gen out\ReleaseMD
 autoninja -C out\ReleaseMD `
@@ -187,17 +227,19 @@ target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
 use_lld = false
-use_dynamic_crt_for_webrtc = true
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 ```
+
+The same `default_crt` edit from the Release section makes the Debug tree use
+`/MDd`; without it, Debug WebRTC is built with `/MTd` and fails identically.
 
 Generate and build it with the same toolchain override:
 
 ```powershell
 Set-Location E:\webrtc_src\src
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
+$env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 
 gn gen out\DebugMD
 third_party\ninja\ninja.exe -C out\DebugMD `
@@ -279,6 +321,10 @@ The Debug build requires the Debug WebRTC tree from section 4. Each build copies
 Qt, FFmpeg, and platform plugins into `x64\<Config>` (Debug uses
 `windeployqt --debug`).
 
+CMake also requires a Release WebRTC tree even when you only build Debug:
+`RLINK_WEBRTC_OUT` must be set and contain `obj\webrtc.lib` (see
+`cmake\RlinkWebRtc.cmake`). Keep both trees if you work on Debug.
+
 If you change an environment variable and the CMake cache is stale, reconfigure
 with `--fresh`:
 
@@ -319,10 +365,13 @@ the GN output directory (for example `out\ReleaseMD` / `out\DebugMD`). CMake
 looks for `obj\webrtc.lib` inside each. A missing Debug tree only produces a
 configure-time warning; the Debug link then fails.
 
-### LNK2038: RuntimeLibrary mismatch
+### LNK2038 / LNK1319: RuntimeLibrary mismatch
 
-Release uses `/MD` and Debug uses `/MDd`. Regenerate WebRTC for the matching
-configuration (section 4).
+WebRTC was built with the static CRT (`/MT`/`/MTd`) instead of `/MD`/`/MDd`.
+The GN argument some guides mention (`use_dynamic_crt_for_webrtc`) does not
+exist in the pinned revision and is ignored — see section 4. Apply the
+`default_crt` edit (or run `scripts\Prepare-LibWebRtc.ps1`) and rebuild WebRTC
+for the matching configuration.
 
 ### LNK2038: _ITERATOR_DEBUG_LEVEL mismatch (Debug)
 
@@ -339,9 +388,10 @@ the code, not a build configuration problem.
 
 ### LNK2001: unresolved `__std_*` symbols when linking RLinkAPP
 
-WebRTC and the application were built with different MSVC STL versions. Regenerate
-WebRTC with the same toolset as the app (`GYP_MSVS_OVERRIDE_PATH` pointing at the
-VS2022 Build Tools, i.e. MSVC 14.44.35207), then rebuild.
+This is a different failure from the RuntimeLibrary mismatch above: WebRTC and
+the application were built with different MSVC STL versions. Regenerate WebRTC
+with the same toolset as the app (`GYP_MSVS_OVERRIDE_PATH` pointing at your
+VS2022 install, i.e. MSVC 14.44.35207), then rebuild.
 
 ### builtin_video_* or adapted_video_track_source is missing
 
