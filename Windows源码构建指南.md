@@ -80,6 +80,33 @@ $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
 $env:GYP_MSVS_OVERRIDE_PATH = 'C:\Program Files\Microsoft Visual Studio\2022\Community'
 ```
 
+`scripts\Prepare-LibWebRtc.ps1` 会自行设置 `GYP_MSVS_OVERRIDE_PATH`：可用
+`-MsvsPath` 传入，或读取 `$env:GYP_MSVS_OVERRIDE_PATH`，或通过 `vswhere`
+自动探测。只有手工执行 `gn gen`/`ninja` 时才需要按上面的方式自行导出。
+
+### WebRTC 检出的 Git 配置
+
+WebRTC 需要逐字节精确的文件内容，检出过程中 Git 不能改写行尾。Git for
+Windows 在**系统级**默认 `core.autocrlf=true`，这正是问题的来源。WebRTC
+的目录层级也很深，因此还需要长路径支持。
+
+`scripts\Prepare-LibWebRtc.ps1` 通过 `GIT_CONFIG_COUNT` 环境变量只对自身
+进程树注入以下设置，不改动你的全局 Git 配置：
+
+```text
+core.autocrlf    = false
+core.filemode    = false
+core.fscache     = true
+core.preloadindex = true
+core.longpaths   = true
+```
+
+仓库里的 `.gitattributes` 只约束**该仓库自身**跟踪的文件，覆盖不到 WebRTC
+检出、depot_tools 或任何 DEPS 子仓库。若你手工同步 WebRTC，请自行设置上述
+项（例如用 `GIT_CONFIG_GLOBAL` 指向一份专用配置文件）。开启 Windows 长路径
+（`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`）
+需要管理员权限；未开启时 `core.longpaths=true` 可作为替代。
+
 ## 3. 克隆源码
 
 ```powershell
@@ -98,33 +125,59 @@ libwebrtc 是整个构建中体积最大、耗时最长的外部依赖。不要�
 配置必须互相匹配。
 
 先安装并将 `depot_tools` 加入 `PATH`，然后按照 WebRTC 官方 Windows
-流程取得源码。以下示例把源码放在 `E:\webrtc_src\src`：
+流程取得源码。revision 必须写入 `.gclient` 的 solution url：这一版 gclient
+会忽略单独的 `"revision"` 键，而 solution url 不带 revision 时会跟踪
+`origin/main`，下一次 `gclient sync` 就会把手工 `git checkout` 覆盖掉。以下
+示例把源码放在 `E:\webrtc_src`：
 
 ```powershell
 New-Item -ItemType Directory -Force E:\webrtc_src
+Set-Content E:\webrtc_src\.gclient -Encoding ASCII -Value @'
+solutions = [
+  {
+    "name": "src",
+    "url": "https://webrtc.googlesource.com/src.git@1e2bd46a33bc0a95ff4e032e380f9fcfa2505808",
+    "deps_file": "DEPS",
+  },
+]
+'@
 Set-Location E:\webrtc_src
-fetch --nohooks webrtc
-Set-Location .\src
-git checkout 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
 gclient sync -D
 ```
 
+`gclient sync` 会把 `src` 拉取/检出到固定 revision，并按该 revision 的 DEPS
+一次性同步全部依赖，不需要再单独 `git checkout`。不要用
+`fetch --nohooks webrtc` 起步：它会写出不带 revision 的 `.gclient`、先按
+`origin/main` 同步一遍，而且在 `.gclient` 已存在时会拒绝运行。用下面的命令
+校验结果：
+
+```powershell
+git -C E:\webrtc_src\src rev-parse HEAD
+# 必须输出 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
+```
+
+如果要固定的是分支头（`refs/branch-heads/...`）而不是提交，需要额外加
+`gclient sync --with_branch_heads`；固定提交则不需要。
+
 `scripts\Prepare-LibWebRtc.ps1` 可自动完成本节全部工作：必要时引导
-depot_tools 包装脚本、拉取固定 revision、应用下面的 CRT 修补、写入两个
-`args.gn`，并编译 `out\ReleaseMD` 与 `out\DebugMD`。
+depot_tools 包装脚本、写入或改写 `.gclient` 的 solution url 以固定 revision、
+一遍完成同步、断言同步后的 `HEAD` 等于固定 commit、应用下面的 CRT 修补、
+写入两个 `args.gn`，并编译 `out\ReleaseMD` 与 `out\DebugMD`。
 
 手工操作时需要注意 depot_tools 的两个坑：
 
 - 全新克隆的 depot_tools 在引导完成前不会生成 `git.bat`，此时 `gclient` 会
   抛出令人困惑的 `git.bat` `FileNotFoundError`。先运行一次
   `<depot_tools>\bootstrap\win_tools.bat`。
-- 目标目录里已存在 `.gclient` 时，`fetch` 会拒绝继续（提示
-  “already contain ... a checkout”），此时改为在该目录执行 `gclient sync`。
+- 若在已存在 `.gclient` 的目录改用 `fetch`（而非上面的流程），它会拒绝继续
+  （提示 “already contain ... a checkout”）。此时应直接执行 `gclient sync`；
+  `fetch` 只是「写 `.gclient` + 跑一次 `gclient sync`」的包装。
 
 在 `E:\webrtc_src\src\out\ReleaseMD\args.gn` 写入：
 
 ```gn
 is_debug = false
+enable_iterator_debugging = false
 target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
@@ -327,9 +380,15 @@ Test-Path .\x64\Release\RLinkUpdater.exe
 Test-Path .\x64\Release\RemoteCSignalServer.exe
 Test-Path .\x64\Release\platforms\qwindows.dll
 Test-Path .\x64\Release\avcodec-62.dll
+Test-Path .\x64\Debug\RLinkAPP.exe
+Test-Path .\x64\Debug\RLinkUpdater.exe
+Test-Path .\x64\Debug\RemoteCSignalServer.exe
+Test-Path .\x64\Debug\platforms\qwindowsd.dll
+Test-Path .\x64\Debug\avcodec-62.dll
 ```
 
-全部返回 `True` 表示主要程序和运行时文件已经生成。
+全部返回 `True` 表示主要程序和运行时文件已经生成。Debug 的平台插件是带调试
+后缀的 `qwindowsd.dll`，不是 `qwindows.dll`。
 
 ## 7. 常见问题
 

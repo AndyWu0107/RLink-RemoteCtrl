@@ -85,6 +85,38 @@ A mismatch here surfaces as unresolved `__std_*` symbols (`LNK2001`), which is
 a different failure from the `/MT`-vs-`/MD` RuntimeLibrary mismatch covered in
 section 4.
 
+`scripts\Prepare-LibWebRtc.ps1` sets `GYP_MSVS_OVERRIDE_PATH` itself: pass
+`-MsvsPath`, or let it use `$env:GYP_MSVS_OVERRIDE_PATH`, or let it fall back to
+`vswhere`. The manual export above is only needed when you run `gn gen`/`ninja`
+by hand.
+
+### Git configuration for the WebRTC checkout
+
+WebRTC requires exact file contents, so Git must not rewrite line endings while
+checking it out. Git for Windows installs with `core.autocrlf=true` at *system*
+scope, which is where the surprise comes from. The WebRTC checkout also has deep
+paths, so long path support is needed.
+
+`scripts\Prepare-LibWebRtc.ps1` injects these settings for its own process tree
+through the `GIT_CONFIG_COUNT` environment mechanism, which leaves your global
+git configuration untouched:
+
+```text
+core.autocrlf    = false
+core.filemode    = false
+core.fscache     = true
+core.preloadindex = true
+core.longpaths   = true
+```
+
+A repository `.gitattributes` only governs the files of *that* repository, so
+this repository's `.gitattributes` does not cover the WebRTC checkout, depot_tools,
+or any DEPS dependency. If you sync WebRTC by hand instead of using the script,
+set the values above yourself (for example in a dedicated config file selected
+with `GIT_CONFIG_GLOBAL`). Enabling Windows long path support
+(`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`) also
+requires an elevated shell; without it, `core.longpaths=true` is the workaround.
+
 ## 3. Clone the source code
 
 ```powershell
@@ -104,36 +136,61 @@ use an arbitrary prebuilt version. The WebRTC source, generated headers,
 static libraries, compiler ABI, and CRT configuration must match.
 
 Install `depot_tools`, add it to `PATH`, and obtain the WebRTC source through
-the official Windows workflow. The following example uses
-`E:\webrtc_src\src`:
+the official Windows workflow. The revision has to be part of the solution URL
+in `.gclient`: this `gclient` ignores a separate `"revision"` key, and a solution
+URL without a revision tracks `origin/main`, so a bare `git checkout` is undone
+by the next `gclient sync`. The following example uses `E:\webrtc_src`:
 
 ```powershell
 New-Item -ItemType Directory -Force E:\webrtc_src
+Set-Content E:\webrtc_src\.gclient -Encoding ASCII -Value @'
+solutions = [
+  {
+    "name": "src",
+    "url": "https://webrtc.googlesource.com/src.git@1e2bd46a33bc0a95ff4e032e380f9fcfa2505808",
+    "deps_file": "DEPS",
+  },
+]
+'@
 Set-Location E:\webrtc_src
-fetch --nohooks webrtc
-Set-Location .\src
-git checkout 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
 gclient sync -D
 ```
 
+`gclient sync` clones or checks out `src` at the pinned revision and syncs every
+DEPS dependency to that same revision in one pass; no separate `git checkout` is
+needed. Do not start with `fetch --nohooks webrtc`: it writes an unpinned
+`.gclient`, does an initial sync at `origin/main`, and refuses to run once a
+`.gclient` exists. Verify the result with:
+
+```powershell
+git -C E:\webrtc_src\src rev-parse HEAD
+# must print 1e2bd46a33bc0a95ff4e032e380f9fcfa2505808
+```
+
+Pinning a branch head (`refs/branch-heads/...`) instead of a commit additionally
+needs `gclient sync --with_branch_heads`; a commit pin does not.
+
 `scripts\Prepare-LibWebRtc.ps1` automates this whole section: it bootstraps the
-depot_tools wrappers if needed, fetches the pinned revision, applies the CRT
-edit below, writes both `args.gn` files and builds `out\ReleaseMD` and
-`out\DebugMD`.
+depot_tools wrappers if needed, writes or re-pins the `.gclient` solution URL,
+syncs the pinned revision in one pass, asserts that the resulting `HEAD` equals
+the pinned commit, applies the CRT edit below, writes both `args.gn` files and
+builds `out\ReleaseMD` and `out\DebugMD`.
 
 Two depot_tools pitfalls to expect if doing it by hand:
 
 - A fresh depot_tools checkout does not create `git.bat` until its bootstrap
   runs, and `gclient` fails with a confusing `FileNotFoundError` for `git.bat`
   until then. Run `<depot_tools>\bootstrap\win_tools.bat` once.
-- `fetch` refuses to continue when the target directory already has a
-  `.gclient` ("already contain ... a checkout"). In that case run `gclient sync`
-  from that directory instead of `fetch`.
+- If you run `fetch` instead of the flow above on a directory that already has a
+  `.gclient`, it refuses to continue ("already contain ... a checkout"). Use
+  `gclient sync` there instead; `fetch` is only a wrapper that writes a
+  `.gclient` and runs `gclient sync` once.
 
 Create `E:\webrtc_src\src\out\ReleaseMD\args.gn` with:
 
 ```gn
 is_debug = false
+enable_iterator_debugging = false
 target_cpu = "x64"
 rtc_include_tests = false
 use_custom_libcxx = false
@@ -346,9 +403,15 @@ Test-Path .\x64\Release\RLinkUpdater.exe
 Test-Path .\x64\Release\RemoteCSignalServer.exe
 Test-Path .\x64\Release\platforms\qwindows.dll
 Test-Path .\x64\Release\avcodec-62.dll
+Test-Path .\x64\Debug\RLinkAPP.exe
+Test-Path .\x64\Debug\RLinkUpdater.exe
+Test-Path .\x64\Debug\RemoteCSignalServer.exe
+Test-Path .\x64\Debug\platforms\qwindowsd.dll
+Test-Path .\x64\Debug\avcodec-62.dll
 ```
 
-All five commands should return `True`.
+Every command should return `True`. Debug uses the debug-flavoured platform
+plugin `qwindowsd.dll`, not `qwindows.dll`.
 
 ## 7. Troubleshooting
 

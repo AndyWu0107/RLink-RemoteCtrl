@@ -5,9 +5,22 @@
 Prepares the pinned libwebrtc static libraries used by the RLink CMake build.
 
 .DESCRIPTION
-Fetches/updates the WebRTC checkout at the revision pinned in BUILDING.md,
-forces the dynamic CRT, writes the GN args and builds the static libraries that
-RLinkAPP links against.
+Checks out the WebRTC revision pinned in BUILDING.md, syncs every DEPS
+dependency to that revision, forces the dynamic CRT, writes the GN args and
+builds the static libraries that RLinkAPP links against.
+
+The revision is enforced by putting it in the `src` solution URL in .gclient
+(`.../src.git@<commit>`), not by a bare `git checkout`: this gclient ignores a
+separate `"revision"` key in .gclient, and when the solution URL carries no
+revision it tracks `origin/main`, which silently undoes a manual checkout on the
+next sync. The sync is performed in a single pass and the resulting HEAD is
+verified against the pinned commit.
+
+WebRTC also requires `core.autocrlf=false` (Git for Windows installs with
+`core.autocrlf=true` at system scope, which rewrites byte-exact text files) and
+long path support. Those are injected for this process tree only through the
+GIT_CONFIG_COUNT environment mechanism, so the developer's global git
+configuration is left untouched.
 
 The pinned WebRTC revision has no GN argument for the dynamic CRT: its
 build/config/win/BUILD.gn default_crt config selects /MT, which cannot link
@@ -25,18 +38,24 @@ the parent of $env:RLINK_WEBRTC_SRC when set.
 depot_tools checkout. Defaults to $env:RLINK_DEPOT_TOOLS, then to the directory
 of gclient.bat on PATH.
 
+.PARAMETER MsvsPath
+Visual Studio 2022 installation root used for GYP_MSVS_OVERRIDE_PATH, so WebRTC
+uses the same MSVC STL as the CMake/Qt build (see BUILDING.md section 2).
+Defaults to $env:GYP_MSVS_OVERRIDE_PATH, then to the path reported by vswhere.
+
 .PARAMETER Configurations
 Which GN output trees to build: Release (out\ReleaseMD), Debug (out\DebugMD) or
 both. Default: both.
 
 .PARAMETER SkipFetch
-Skip fetch/gclient sync and only re-patch, gn gen and build an existing checkout.
+Skip the pinned checkout/sync and only re-patch, gn gen and build an existing
+checkout. The existing HEAD is reported but not changed.
 
 .PARAMETER SkipBuild
 Patch and write args.gn only; do not run gn gen or ninja.
 
 .EXAMPLE
-.\scripts\Prepare-LibWebRtc.ps1 -Root D:\dev\libs\webrtc_src -DepotTools D:\dev\libs\depot_tools
+.\scripts\Prepare-LibWebRtc.ps1 -Root D:\dev\webrtc_src -DepotTools D:\dev\depot_tools
 
 .EXAMPLE
 .\scripts\Prepare-LibWebRtc.ps1 -SkipFetch -Configurations Release
@@ -45,6 +64,7 @@ Patch and write args.gn only; do not run gn gen or ninja.
 param(
     [string]$Root,
     [string]$DepotTools,
+    [string]$MsvsPath,
     [ValidateSet('Release', 'Debug')]
     [string[]]$Configurations = @('Release', 'Debug'),
     [switch]$SkipFetch,
@@ -54,6 +74,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $WebRtcCommit = '1e2bd46a33bc0a95ff4e032e380f9fcfa2505808'
+$WebRtcUrl = 'https://webrtc.googlesource.com/src.git'
 
 $OutByConfig = @{
     Release = 'out\ReleaseMD'
@@ -114,14 +135,69 @@ if (-not $DepotTools -or -not (Test-Path -LiteralPath (Join-Path $DepotTools 'gc
 $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 $DepotTools = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DepotTools)
 $Src = Join-Path $Root 'src'
+$GclientFile = Join-Path $Root '.gclient'
 
 # depot_tools must be first on PATH and must not update itself off the pinned revision.
 $env:PATH = "$DepotTools;$env:PATH"
 $env:DEPOT_TOOLS_UPDATE = '0'
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
 
+# --- toolchain: pin GYP_MSVS_OVERRIDE_PATH to the local VS2022 install -------
+# Without this, gn falls back to its own detection and may pick a different
+# MSVC than the CMake/Qt build, which surfaces as unresolved __std_* symbols.
+if (-not $MsvsPath -and $env:GYP_MSVS_OVERRIDE_PATH) {
+    $MsvsPath = $env:GYP_MSVS_OVERRIDE_PATH
+}
+if (-not $MsvsPath) {
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    if ($programFilesX86) {
+        $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (Test-Path -LiteralPath $vswhere) {
+            $vsArgs = @(
+                '-latest', '-products', '*',
+                '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+                '-property', 'installationPath'
+            )
+            $detected = @(& $vswhere @vsArgs) | Select-Object -First 1
+            if ($detected) {
+                $MsvsPath = $detected.Trim()
+            }
+        }
+    }
+}
+if (-not $MsvsPath -or -not (Test-Path -LiteralPath $MsvsPath)) {
+    throw "Visual Studio 2022 with the C++ toolset was not found. Pass -MsvsPath or set GYP_MSVS_OVERRIDE_PATH (see BUILDING.md section 2)."
+}
+$env:GYP_MSVS_OVERRIDE_PATH = $MsvsPath
+
+# --- git settings WebRTC needs, scoped to this process tree -----------------
+# Injected via GIT_CONFIG_COUNT so the user's global git config is not modified.
+# (git config --global core.autocrlf false would work too, but it changes every
+# repository on the machine.)
+$gitSettings = @(
+    @{ Key = 'core.autocrlf';    Value = 'false' },
+    @{ Key = 'core.filemode';    Value = 'false' },
+    @{ Key = 'core.fscache';     Value = 'true' },
+    @{ Key = 'core.preloadindex'; Value = 'true' },
+    @{ Key = 'core.longpaths';   Value = 'true' }
+)
+$env:GIT_CONFIG_COUNT = [string]$gitSettings.Count
+for ($i = 0; $i -lt $gitSettings.Count; $i++) {
+    Set-Item -Path ("Env:GIT_CONFIG_KEY_{0}" -f $i) -Value $gitSettings[$i].Key
+    Set-Item -Path ("Env:GIT_CONFIG_VALUE_{0}" -f $i) -Value $gitSettings[$i].Value
+}
+
+# OS long path support is machine-wide and cannot be changed without elevation.
+$longPaths = (Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -ErrorAction SilentlyContinue).LongPathsEnabled
+if ($longPaths -ne 1) {
+    Write-Warning ('Windows long path support (LongPathsEnabled) is off; relying on ' +
+        'git core.longpaths=true. Enable it from an elevated shell if a checkout ' +
+        'fails with path-too-long errors.')
+}
+
 Write-Step "WebRTC src : $Src"
 Write-Step "depot_tools: $DepotTools"
+Write-Step "MSVC       : $MsvsPath"
 Write-Step "configs    : $($Configurations -join ', ')"
 
 # --- bootstrap the depot_tools wrappers if necessary ------------------------
@@ -131,38 +207,73 @@ if (-not (Test-Path -LiteralPath (Join-Path $DepotTools 'git.bat'))) {
     }
 }
 
-# --- fetch / sync the pinned WebRTC checkout --------------------------------
+# --- pin the `src` solution and sync it in one pass -------------------------
 if (-not $SkipFetch) {
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
 
-    if (-not (Test-Path -LiteralPath (Join-Path $Src '.git'))) {
-        if (Test-Path -LiteralPath (Join-Path $Root '.gclient')) {
-            Invoke-Native 'gclient sync (initial checkout)' {
-                Push-Location $Root
-                try { & gclient sync --nohooks --with_branch_heads } finally { Pop-Location }
+    $pinnedUrl = "$WebRtcUrl@$WebRtcCommit"
+    if (-not (Test-Path -LiteralPath $GclientFile)) {
+        Write-Step "Writing pinned .gclient ($pinnedUrl)"
+        $spec = (@(
+                'solutions = [',
+                '  {',
+                '    "name": "src",',
+                ('    "url": "{0}",' -f $pinnedUrl),
+                '    "deps_file": "DEPS",',
+                '    "custom_deps": {},',
+                '  },',
+                ']'
+            ) -join "`r`n") + "`r`n"
+        [System.IO.File]::WriteAllText($GclientFile, $spec, (New-Object System.Text.UTF8Encoding($false)))
+    }
+    else {
+        # Reuse an existing .gclient (for example one written by `fetch`), but
+        # force the revision into the src solution URL so the sync cannot drift
+        # back to origin/main. Only the URL line is touched; other keys stay.
+        $content = [System.IO.File]::ReadAllText($GclientFile)
+        $pattern = '"url"\s*:\s*"' + [regex]::Escape($WebRtcUrl) + '(?:@[^"]*)?"'
+        if ($content -match $pattern) {
+            $updated = [regex]::Replace($content, $pattern, ('"url": "{0}"' -f $pinnedUrl))
+            if ($updated -ne $content) {
+                [System.IO.File]::WriteAllText($GclientFile, $updated, (New-Object System.Text.UTF8Encoding($false)))
+                Write-Step "Pinned the src revision in $GclientFile"
             }
         }
         else {
-            Invoke-Native 'fetch --nohooks webrtc' {
-                Push-Location $Root
-                try { & fetch --nohooks webrtc } finally { Pop-Location }
-            }
+            Write-Warning "Could not find the WebRTC src URL in $GclientFile; relying on --revision for this sync."
         }
     }
 
-    Invoke-Native "git checkout $WebRtcCommit" {
-        Push-Location $Src
+    # One pass: gclient clones/checks out src@<pin> and syncs the DEPS of that
+    # exact revision. --revision is kept as a second lock in case an existing
+    # .gclient could not be rewritten above.
+    Invoke-Native "gclient sync -D (src@$WebRtcCommit)" {
+        Push-Location $Root
         try {
-            & git fetch origin
-            if ($LASTEXITCODE -ne 0) { return }
-            & git checkout $WebRtcCommit
+            & gclient sync -D --with_branch_heads --revision "src@$WebRtcCommit"
         }
         finally { Pop-Location }
     }
 
-    Invoke-Native 'gclient sync -D' {
-        Push-Location $Src
-        try { & gclient sync -D } finally { Pop-Location }
+    if (-not (Test-Path -LiteralPath (Join-Path $Src '.git'))) {
+        throw "gclient sync finished but $Src\.git does not exist."
+    }
+    $head = (& git -C $Src rev-parse HEAD).Trim()
+    if ($head -ne $WebRtcCommit) {
+        throw "WebRTC checkout is at $head, expected $WebRtcCommit. The pinned revision was not applied."
+    }
+    Write-Step "WebRTC src pinned at $head"
+}
+else {
+    Write-Step 'Skipping checkout/sync (-SkipFetch).'
+    if (Test-Path -LiteralPath (Join-Path $Src '.git')) {
+        $head = (& git -C $Src rev-parse HEAD).Trim()
+        if ($head -ne $WebRtcCommit) {
+            Write-Warning "Existing WebRTC checkout is at $head, not the pinned $WebRtcCommit."
+        }
+        else {
+            Write-Step "Existing WebRTC checkout is at the pinned revision."
+        }
     }
 }
 
