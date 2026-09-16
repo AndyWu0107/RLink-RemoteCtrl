@@ -24,10 +24,7 @@
         "rhs": "Windows"
       },
       "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
-      "cacheVariables": {
-        "CMAKE_SYSTEM_VERSION": "10.0.26100.0"
-      }
+      "architecture": "x64"
     },
     {
       "name": "windows-msvc-x64-v143",
